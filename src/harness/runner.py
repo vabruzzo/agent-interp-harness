@@ -93,7 +93,7 @@ async def run_session(
         max_turns=max_turns,
         permission_mode=run_config.permission_mode,
         cwd=run_config.repo_path,
-        model=run_config.model if run_config.provider != "openrouter" else None,
+        model=run_config.model,
         env=provider_env,
         max_budget_usd=run_config.max_budget_usd,
         setting_sources=setting_sources,

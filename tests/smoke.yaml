@@ -1,4 +1,4 @@
-model: "anthropic/claude-sonnet-4"
+model: "claude-sonnet-4-20250514"
 provider: openrouter
 repo_path: "./repos/test_repo"
 session_mode: isolated

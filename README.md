@@ -60,7 +60,7 @@ Example configs:
 
 ```yaml
 # OpenRouter (default)
-model: "anthropic/claude-sonnet-4"
+model: "claude-sonnet-4-20250514"
 provider: openrouter
 
 # Anthropic direct
@@ -73,7 +73,7 @@ provider: anthropic
 Experiments are defined as YAML config files. Here's a full example:
 
 ```yaml
-model: "anthropic/claude-sonnet-4"
+model: "claude-sonnet-4-20250514"
 provider: openrouter                    # openrouter | anthropic | bedrock | vertex
 repo_path: "./repos/my_project"        # target codebase the agent works in
 session_mode: chained                   # isolated | chained | forked
@@ -148,7 +148,7 @@ Subagent messages are filtered from the parent trajectory to keep it clean. The 
 
 | Field | Required | Default | Description |
 |-------|----------|---------|-------------|
-| `model` | yes | — | Claude model identifier (e.g. `anthropic/claude-sonnet-4` for OpenRouter, `claude-sonnet-4-20250514` for Anthropic direct) |
+| `model` | yes | — | Claude model identifier (e.g. `claude-sonnet-4-20250514`). Use Anthropic model names, not OpenRouter-format names. |
 | `provider` | no | `openrouter` | API provider: `openrouter`, `anthropic`, `bedrock`, `vertex` |
 | `base_url` | no | — | Custom API base URL (overrides provider default) |
 | `repo_path` | yes | — | Path to the target codebase |
