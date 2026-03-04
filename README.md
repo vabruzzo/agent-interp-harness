@@ -45,7 +45,7 @@ harness inspect runs/<run-name>
 
 ## Providers
 
-The harness uses the [Claude Agent SDK](https://pypi.org/project/claude-agent-sdk/) to run Claude Code sessions programmatically. Set the `provider` field in your config to choose how to route API calls.
+The harness uses the [Claude Agent SDK](https://pypi.org/project/claude-agent-sdk/) to run Claude Code sessions programmatically. **Only Claude models are supported** — the SDK speaks the Anthropic Messages API protocol and cannot run non-Claude models. Set the `provider` field in your config to choose how to route API calls.
 
 | Provider | Config value | Env var | Notes |
 |----------|-------------|---------|-------|
@@ -54,7 +54,7 @@ The harness uses the [Claude Agent SDK](https://pypi.org/project/claude-agent-sd
 | [AWS Bedrock](https://aws.amazon.com/bedrock/) | `bedrock` | Standard AWS credentials (`AWS_ACCESS_KEY_ID`, etc.) | Sets `CLAUDE_CODE_USE_BEDROCK=1`. |
 | [GCP Vertex AI](https://cloud.google.com/vertex-ai) | `vertex` | Standard GCP credentials (`GOOGLE_APPLICATION_CREDENTIALS`, etc.) | Sets `CLAUDE_CODE_USE_VERTEX=1`. |
 
-You can also set `base_url` in your config to point at any OpenAI-compatible endpoint, overriding the provider's default URL.
+You can also set `base_url` in your config to point at a custom Anthropic-compatible endpoint.
 
 Example configs:
 
@@ -66,11 +66,6 @@ provider: openrouter
 # Anthropic direct
 model: "claude-sonnet-4-20250514"
 provider: anthropic
-
-# Custom endpoint
-model: "my-model"
-provider: openrouter
-base_url: "https://my-proxy.example.com/api"
 ```
 
 ## Configuration
@@ -153,7 +148,7 @@ Subagent messages are filtered from the parent trajectory to keep it clean. The 
 
 | Field | Required | Default | Description |
 |-------|----------|---------|-------------|
-| `model` | yes | — | Model identifier (e.g. `anthropic/claude-sonnet-4`) |
+| `model` | yes | — | Claude model identifier (e.g. `anthropic/claude-sonnet-4` for OpenRouter, `claude-sonnet-4-20250514` for Anthropic direct) |
 | `provider` | no | `openrouter` | API provider: `openrouter`, `anthropic`, `bedrock`, `vertex` |
 | `base_url` | no | — | Custom API base URL (overrides provider default) |
 | `repo_path` | yes | — | Path to the target codebase |
@@ -273,9 +268,11 @@ Each session produces a `trajectory.json` in [ATIF v1.6](https://harborframework
 
 When `capture_api_requests: true` is set (or `--capture-requests` CLI flag), the harness runs a local reverse proxy between the SDK and the API. This captures data not available in the SDK message stream:
 
-- **System prompt** — Claude Code's full built-in system prompt (not just your `system_prompt` config)
+- **System prompt** — the SDK's system prompt (a minimal agent prompt plus your `system_prompt` config)
 - **Tool definitions** — JSON schemas for each tool (Read, Write, Bash, etc.)
-- **Compaction content** — when context is compacted, the summarized messages that replace history
+- **Context management** — `applied_edits` from the API response when compaction occurs
+- **Per-request token usage** — input/output tokens, cache creation/read breakdown
+- **Compaction detection** — when message count drops between requests, captures the post-compaction messages
 - **Sampling parameters** — model, temperature, max_tokens
 
 The proxy logs to `api_captures.jsonl` in each session directory. System prompt and tools are logged in full on the first request and on change; otherwise only a hash is recorded to keep file sizes small.

@@ -1,8 +1,10 @@
-"""Lightweight reverse proxy for capturing API requests.
+"""Lightweight reverse proxy for capturing API requests and responses.
 
 Sits between the Claude Agent SDK and the real API to capture:
 - System prompt (Claude Code's built-in + user's appended)
 - Tool definitions (JSON schemas for Read, Write, Bash, etc.)
+- Context management events (applied_edits from response)
+- Per-request token usage with cache breakdown
 - Compaction events (when message count drops, captures summarized messages)
 - Sampling parameters (model, temperature, max_tokens)
 """
@@ -26,10 +28,57 @@ def _hash(obj: object) -> str:
     return f"sha256:{hashlib.sha256(raw.encode()).hexdigest()[:16]}"
 
 
-class CaptureProxy:
-    """Reverse proxy that logs API request metadata to JSONL."""
+def _parse_sse_response(body: bytes) -> dict:
+    """Parse SSE events from a streaming response to extract metadata.
 
-    def __init__(self) -> None:
+    Extracts from message_start: usage, model
+    Extracts from message_delta: context_management, final usage
+    """
+    result: dict = {}
+    text = body.decode("utf-8", errors="replace")
+
+    for block in text.split("\n\n"):
+        lines = block.strip().split("\n")
+        event_type = None
+        data_str = None
+        for line in lines:
+            if line.startswith("event: "):
+                event_type = line[7:].strip()
+            elif line.startswith("data: "):
+                data_str = line[6:]
+
+        if not data_str:
+            continue
+
+        try:
+            data = json.loads(data_str)
+        except json.JSONDecodeError:
+            continue
+
+        if event_type == "message_start":
+            msg = data.get("message", {})
+            usage = msg.get("usage")
+            if usage:
+                result["usage_start"] = usage
+            if msg.get("model"):
+                result["response_model"] = msg["model"]
+
+        elif event_type == "message_delta":
+            delta = data.get("delta", {})
+            usage = data.get("usage")
+            if usage:
+                result["usage_delta"] = usage
+            ctx = data.get("context_management")
+            if ctx:
+                result["context_management"] = ctx
+
+    return result
+
+
+class CaptureProxy:
+    """Reverse proxy that logs API request/response metadata to JSONL."""
+
+    def __init__(self, raw_dump_count: int = 0) -> None:
         self._target_url: str = ""
         self._log_path: Path | None = None
         self._site: web.TCPSite | None = None
@@ -38,6 +87,7 @@ class CaptureProxy:
         self._prev_message_count = 0
         self._prev_system_hash: str | None = None
         self._prev_tools_hash: str | None = None
+        self._raw_dump_count = raw_dump_count  # dump full req/resp for first N requests
 
     async def start(self, target_url: str, log_path: Path) -> int:
         """Start the proxy server. Returns the assigned port."""
@@ -75,19 +125,31 @@ class CaptureProxy:
         target = f"{self._target_url}/{request.match_info['path']}"
         body = await request.read()
 
-        # Log Messages API requests
+        # Detect Messages API requests
         is_messages = request.method == "POST" and "/messages" in request.path
+
+        # Parse request body (but don't log yet — wait for response)
+        request_data: dict | None = None
         if is_messages and body:
             try:
-                self._log_request(json.loads(body))
+                request_data = json.loads(body)
+                self._request_index += 1
             except Exception:
-                logger.exception("Failed to log API request")
+                logger.exception("Failed to parse API request body")
 
         # Forward headers (drop host, it'll be set by aiohttp)
         headers = {
             k: v for k, v in request.headers.items()
             if k.lower() not in ("host", "content-length", "transfer-encoding")
         }
+
+        # Raw dump for first N requests
+        should_dump_raw = (
+            is_messages
+            and self._raw_dump_count > 0
+            and self._request_index <= self._raw_dump_count
+            and self._log_path
+        )
 
         async with ClientSession() as session:
             async with session.request(
@@ -102,23 +164,70 @@ class CaptureProxy:
                         response.headers[k] = v
                 await response.prepare(request)
 
-                # Stream response body
+                # Stream response body; collect for Messages API requests
+                response_chunks: list[bytes] = []
                 async for chunk in resp.content.iter_any():
                     await response.write(chunk)
+                    if is_messages:
+                        response_chunks.append(chunk)
 
                 await response.write_eof()
+
+                # Log combined request + response metadata
+                if request_data is not None:
+                    try:
+                        resp_body = b"".join(response_chunks)
+                        response_meta = _parse_sse_response(resp_body)
+                        self._log_exchange(request_data, response_meta)
+                    except Exception:
+                        logger.exception("Failed to log API exchange")
+
+                # Save raw dump
+                if should_dump_raw and self._log_path:
+                    raw_dir = self._log_path.parent / "raw_dumps"
+                    raw_dir.mkdir(parents=True, exist_ok=True)
+                    idx = self._request_index
+                    # Request
+                    req_path = raw_dir / f"request_{idx:03d}.json"
+                    with open(req_path, "wb") as f:
+                        f.write(body)
+                    # Request headers (strip auth)
+                    safe_headers = {
+                        k: v for k, v in headers.items()
+                        if k.lower() not in ("x-api-key", "authorization")
+                    }
+                    hdr_path = raw_dir / f"request_{idx:03d}_headers.json"
+                    with open(hdr_path, "w") as f:
+                        json.dump(
+                            {"method": request.method, "path": request.path,
+                             "target": target, "headers": safe_headers},
+                            f, indent=2,
+                        )
+                    # Response
+                    resp_dump = b"".join(response_chunks)
+                    resp_path = raw_dir / f"response_{idx:03d}.txt"
+                    with open(resp_path, "wb") as f:
+                        f.write(resp_dump)
+                    # Response headers
+                    resp_hdr_path = raw_dir / f"response_{idx:03d}_headers.json"
+                    with open(resp_hdr_path, "w") as f:
+                        json.dump(
+                            {"status": resp.status,
+                             "headers": dict(resp.headers)},
+                            f, indent=2,
+                        )
+                    logger.info("Raw dump saved: request/response %d", idx)
+
                 return response
 
-    def _log_request(self, data: dict) -> None:
-        """Extract and log metadata from a Messages API request."""
+    def _log_exchange(self, request_data: dict, response_meta: dict) -> None:
+        """Log combined request + response metadata to JSONL."""
         if not self._log_path:
             return
 
-        self._request_index += 1
-
-        system = data.get("system")
-        tools = data.get("tools")
-        messages = data.get("messages", [])
+        system = request_data.get("system")
+        tools = request_data.get("tools")
+        messages = request_data.get("messages", [])
         message_count = len(messages)
 
         system_hash = _hash(system) if system else None
@@ -134,11 +243,11 @@ class CaptureProxy:
         entry: dict = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "request_index": self._request_index,
-            "model": data.get("model"),
+            "model": request_data.get("model"),
             "sampling_params": {
-                k: data.get(k)
+                k: request_data.get(k)
                 for k in ("temperature", "max_tokens", "top_p", "top_k")
-                if data.get(k) is not None
+                if request_data.get(k) is not None
             },
             "message_count": message_count,
         }
@@ -169,6 +278,28 @@ class CaptureProxy:
             )
 
         self._prev_message_count = message_count
+
+        # Response metadata
+        if response_meta.get("context_management"):
+            entry["context_management"] = response_meta["context_management"]
+            applied = response_meta["context_management"].get("applied_edits", [])
+            if applied:
+                logger.info(
+                    "Context management: %d applied edits", len(applied),
+                )
+
+        # Per-request token usage from response
+        usage_start = response_meta.get("usage_start", {})
+        usage_delta = response_meta.get("usage_delta", {})
+        if usage_start or usage_delta:
+            entry["usage"] = {
+                "input_tokens": usage_start.get("input_tokens"),
+                "output_tokens": usage_delta.get("output_tokens"),
+                "cache_creation_input_tokens": usage_start.get("cache_creation_input_tokens"),
+                "cache_read_input_tokens": usage_start.get("cache_read_input_tokens"),
+                "cache_creation": usage_start.get("cache_creation"),
+                "service_tier": usage_start.get("service_tier"),
+            }
 
         # Append to JSONL
         self._log_path.parent.mkdir(parents=True, exist_ok=True)

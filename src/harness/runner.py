@@ -125,7 +125,7 @@ async def run_session(
     proxy: CaptureProxy | None = None
     if run_config.capture_api_requests:
         target_url = get_target_url(run_config.provider, run_config.base_url)
-        proxy = CaptureProxy()
+        proxy = CaptureProxy(raw_dump_count=2)
         port = await proxy.start(
             target_url, session_dir / "api_captures.jsonl"
         )
