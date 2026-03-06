@@ -86,10 +86,11 @@
 			const hasThinking = !!step.reasoning_content;
 			const hasToolCalls = !!(step.tool_calls && step.tool_calls.length > 0);
 			const hasText = !!getMessageText(step.message).trim();
-			const hasToolResults = current?.items.some((i) => i.kind === "tool");
+			const groupHasToolCalls = current?.items.some((i) => i.kind === "tool");
 
-			// Start a new turn when thinking appears after tool calls
-			if (!current || (hasThinking && hasToolResults)) {
+			// Start a new turn when thinking or text appears after tool calls
+			// (indicates a new API response)
+			if (!current || ((hasThinking || hasText) && groupHasToolCalls)) {
 				current = newAgentGroup();
 			}
 
