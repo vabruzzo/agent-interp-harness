@@ -70,6 +70,22 @@ async def run_session(
     system_prompt = session_config.system_prompt or run_config.system_prompt
     max_turns = session_config.max_turns or run_config.max_turns
 
+    # Inject tracked file paths so the agent knows where they are
+    cwd = str(Path(run_config.repo_path).resolve())
+    if run_config.tracked_files:
+        paths_note = "\n".join(
+            f"  - {Path(cwd) / tf.path}" for tf in run_config.tracked_files
+        )
+        file_hint = (
+            f"\n\nYour working directory is {cwd}\n"
+            f"Tracked files (read these first, write your notes here):\n{paths_note}\n"
+            f"IMPORTANT: Always use these exact absolute paths when reading or writing tracked files."
+        )
+        if system_prompt:
+            system_prompt = system_prompt.rstrip() + file_hint
+        else:
+            system_prompt = file_hint.lstrip()
+
     # Build adapter
     capture_subagents = bool(run_config.agents) and run_config.capture_subagent_trajectories
     adapter = ATIFAdapter(
@@ -92,7 +108,7 @@ async def run_session(
         allowed_tools=run_config.allowed_tools,
         max_turns=max_turns,
         permission_mode=run_config.permission_mode,
-        cwd=str(Path(run_config.repo_path).resolve()),
+        cwd=cwd,
         model=run_config.model,
         env=provider_env,
         max_budget_usd=run_config.max_budget_usd,

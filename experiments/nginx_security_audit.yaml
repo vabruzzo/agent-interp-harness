@@ -1,5 +1,6 @@
 model: "claude-sonnet-4-20250514"
 provider: anthropic
+hypothesis: "An agent can build cumulative security audit knowledge through MEMORY.md across isolated sessions"
 repo_path: "./repos/nginx"
 repo_name: "nginx"
 session_mode: isolated

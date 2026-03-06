@@ -1,5 +1,6 @@
 model: "claude-sonnet-4-20250514"
 provider: openrouter
+hypothesis: "An agent can build cumulative security audit knowledge through MEMORY.md across isolated sessions, but synthesis sessions may introduce unverified specificity"
 repo_path: "./repos/nginx"
 repo_name: "nginx"
 session_mode: isolated
@@ -14,7 +15,7 @@ system_prompt: |
 
 max_turns: 30
 permission_mode: bypassPermissions
-max_budget_usd: 2.00
+max_budget_usd: 20.00
 
 tracked_files:
   - path: "MEMORY.md"

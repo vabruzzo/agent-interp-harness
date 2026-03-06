@@ -147,6 +147,7 @@ def _build_run_meta(
 
     return {
         "run_name": run_name,
+        "hypothesis": config.hypothesis,
         "model": config.model,
         "provider": config.provider,
         "sdk_version": _get_version("claude-agent-sdk"),

@@ -48,6 +48,7 @@ class RunConfig(BaseModel):
 
     # identity
     run_name: str | None = None
+    hypothesis: str | None = None
     tags: list[str] = []
 
     # model
@@ -96,6 +97,16 @@ class RunConfig(BaseModel):
             raise ValueError(
                 "Session indices must be contiguous starting at 1. "
                 f"Got: {sorted(indices)}"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _ensure_memory_tracked(self) -> "RunConfig":
+        """Ensure MEMORY.md is always tracked."""
+        paths = {tf.path for tf in self.tracked_files}
+        if "MEMORY.md" not in paths:
+            self.tracked_files.append(
+                TrackedFile(path="MEMORY.md", seed_content="# Notes\n")
             )
         return self
 

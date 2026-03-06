@@ -15,6 +15,7 @@ export interface SessionMeta {
 
 export interface RunMeta {
 	run_name: string;
+	hypothesis?: string;
 	model: string;
 	provider: string;
 	sdk_version?: string;

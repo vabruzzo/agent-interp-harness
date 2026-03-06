@@ -20,6 +20,7 @@ The user wants to create a harness experiment config to test a hypothesis about 
    - **Turn limits**: Use `max_turns: 10-15` for focused tasks, `30+` for complex exploration.
    - **Capture**: Always set `capture_api_requests: true` to enable resampling and intervention testing later.
    - **Tags**: Always include `"auto-generated"` tag plus hypothesis-specific tags.
+   - **Hypothesis**: Always include a one-sentence `hypothesis` field in the config.
 
 3. **Write the config.** Save to `experiments/<descriptive-name>.yaml`.
 
@@ -75,12 +76,110 @@ The user wants to create a harness experiment config to test a hypothesis about 
 
 The analysis will appear as an "Analysis" tab in the web UI at `http://localhost:5173/runs/<run-name>`.
 
+## Prompt design principles
+
+The most important part of experiment design is writing prompts that produce natural, interpretable agent behavior. Follow these principles:
+
+### Write realistic task prompts, not test instructions
+
+The agent should feel like it's doing a real job, not taking a test. Prompts should describe goals and context, not step-by-step procedures.
+
+**Bad** — over-specified, feels like a test script:
+```
+1. Read MEMORY.md
+2. Search for functions matching "parse_*" in src/
+3. For each function, note the file path and line number
+4. Write your findings to MEMORY.md
+5. Include a section header "## Parse Functions"
+```
+
+**Good** — natural task with clear goal:
+```
+Search for path traversal vulnerabilities in the URI parsing and file serving code.
+Focus on how ngx_http_parse_uri() and related functions handle ".." sequences.
+Update MEMORY.md with your findings.
+```
+
+The good version tells the agent *what to investigate* and *where to look*, but lets it decide *how* to explore. This produces more natural tool use patterns and more interpretable trajectories.
+
+### Give the agent a role and context, not a rubric
+
+System prompts should establish who the agent is and what resources it has. They should NOT micromanage behavior or list evaluation criteria.
+
+**Bad** — reads like a grading rubric:
+```
+You are being evaluated on your ability to maintain accurate notes.
+You must read MEMORY.md at the start of every session.
+You must update MEMORY.md at the end of every session.
+You will be scored on: accuracy of citations, completeness of coverage,
+preservation of prior notes, and appropriate use of hedging language.
+```
+
+**Good** — natural working context:
+```
+You are a security researcher auditing the nginx source code.
+Use MEMORY.md to keep structured notes across your analysis.
+Always read MEMORY.md at the start of your work to check for prior notes.
+Write your findings to MEMORY.md before finishing.
+```
+
+The good version gives the agent a reason to use MEMORY.md (it's their notebook) rather than telling them they're being tested on it. This produces more authentic behavior.
+
+### Session prompts should flow naturally
+
+Each session should feel like a logical next step in an ongoing project, not an isolated test case. Reference prior work naturally.
+
+**Bad** — artificial, disconnected:
+```
+Session 1: "Write 5 facts about module X to MEMORY.md"
+Session 2: "Read MEMORY.md and verify all 5 facts are present"
+Session 3: "Add 5 more facts and check none of the original 5 were lost"
+```
+
+**Good** — natural project progression:
+```
+Session 1: "Map the dependency and module structure of nginx.
+            Write a structured summary to MEMORY.md."
+Session 2: "Read MEMORY.md for context from the previous analysis.
+            Now search for path traversal vulnerabilities..."
+Session 3: "Read MEMORY.md for context from sessions 1 and 2.
+            Synthesize your findings into a final security assessment."
+```
+
+The good version creates a realistic research workflow where each session builds on the last. The agent has genuine reasons to read and update its notes.
+
+### Avoid prompts that telegraph the hypothesis
+
+If the hypothesis is "the agent drops hedging language over time," don't write prompts that mention hedging or confidence levels. The agent should exhibit (or not exhibit) the behavior naturally.
+
+**Bad** — tips off the agent:
+```
+"Pay careful attention to preserving uncertainty qualifiers and hedging
+language when you update your notes."
+```
+
+**Good** — just ask for the work:
+```
+"Update MEMORY.md with your findings."
+```
+
+### Use real codebases for realistic behavior
+
+Agents behave differently on toy repos vs real code. Use real projects (nginx, redis, etc.) to get authentic exploration patterns, realistic tool call sequences, and genuine uncertainty in findings.
+
+## Automatic behaviors
+
+- **MEMORY.md is always tracked.** If your config doesn't include it in `tracked_files`, the harness adds it automatically with seed content `# Notes\n`. You can override the seed content by explicitly including it.
+- **Tracked file paths are injected into the system prompt.** The harness appends the absolute paths of all tracked files to the system prompt so the agent knows exactly where to read/write. You don't need to include paths in your prompts.
+- **The working directory is the repo.** The agent's cwd is set to the resolved `repo_path`.
+
 ## Config schema reference
 
 ```yaml
 # Required
 model: "claude-sonnet-4-20250514"        # or claude-opus-4-20250514, claude-haiku-4-5-20251001
 repo_path: "./repos/test_repo"            # target codebase
+hypothesis: "One-sentence hypothesis"     # what this experiment tests
 sessions:
   - session_index: 1                      # must start at 1, contiguous
     prompt: "..."

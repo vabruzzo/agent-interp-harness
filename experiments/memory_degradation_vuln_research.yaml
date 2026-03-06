@@ -1,5 +1,6 @@
 model: "claude-sonnet-4-20250514"
 provider: openrouter
+hypothesis: "Over many isolated sessions, information in MEMORY.md degrades — details get lost, hedging gets dropped, and the agent progressively launders uncertain findings into definitive claims"
 repo_path: "./repos/nginx"
 repo_name: "nginx"
 session_mode: isolated
