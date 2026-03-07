@@ -2,6 +2,9 @@ export interface SessionMeta {
 	session_index: number;
 	session_id: string | null;
 	resumed_from: string | null;
+	fork_from?: number | null;
+	replicate?: number;
+	replicate_count?: number;
 	step_count: number;
 	tool_call_count: number;
 	num_turns: number;
@@ -11,6 +14,14 @@ export interface SessionMeta {
 	error: string | null;
 	started_at: string;
 	finished_at: string;
+}
+
+/** Derive URL-safe session key from session meta (e.g. "2" or "2_r01"). */
+export function sessionKey(s: SessionMeta): string {
+	if (s.replicate != null) {
+		return `${s.session_index}_r${String(s.replicate).padStart(2, "0")}`;
+	}
+	return String(s.session_index);
 }
 
 export interface RunMeta {

@@ -124,6 +124,52 @@ sessions:
 | `chained` | Each session resumes from the previous session's conversation. The agent has full context of all prior interactions. |
 | `forked` | Sessions 2+ fork from session 1. Each sees session 1's context but not each other's. Useful for branching experiments. |
 
+### Flexible forking with `fork_from`
+
+For more control than `session_mode: forked` provides, use `fork_from` on individual sessions to fork from any prior session — not just session 1:
+
+```yaml
+session_mode: isolated   # fork_from overrides session_mode per-session
+
+sessions:
+  - session_index: 1
+    prompt: "Explore the codebase and take notes in MEMORY.md"
+  - session_index: 2
+    prompt: "Write a security analysis based on your notes"
+    fork_from: 1         # forks from session 1's conversation
+  - session_index: 3
+    prompt: "Write a performance analysis based on your notes"
+    fork_from: 1         # also forks from session 1 (independent of session 2)
+```
+
+`fork_from` must reference a session with a lower index. It works with any `session_mode` — when set, it overrides the mode for that session.
+
+### Session resampling with `count`
+
+To study behavioral variance, run the same forked session multiple times:
+
+```yaml
+sessions:
+  - session_index: 1
+    prompt: "Explore the codebase and take notes"
+  - session_index: 2
+    prompt: "Write a security analysis based on your notes"
+    fork_from: 1
+    count: 5             # run 5 replicates of this session
+```
+
+Replicates use a `_rNN` suffix on the session directory:
+
+```
+session_01/              # session 1 (count=1, no suffix)
+session_02_r01/          # session 2, replicate 1 of 5
+session_02_r02/          # session 2, replicate 2 of 5
+...
+session_02_r05/          # session 2, replicate 5 of 5
+```
+
+Sessions with `count: 1` (the default) use the normal `session_NN/` directory name. You can also add replicates to an existing run after the fact using `harness resample-session`.
+
 ### Subagents
 
 The harness can define subagents that the main agent delegates work to via the `Agent` tool. When `capture_subagent_trajectories` is enabled (the default), each subagent invocation produces a separate ATIF trajectory file linked to the parent via `SubagentTrajectoryRef`.
@@ -184,6 +230,8 @@ Each session in `sessions` has:
 | `prompt` | yes | — | The user prompt for this session |
 | `system_prompt` | no | — | Per-session system prompt override |
 | `max_turns` | no | — | Per-session max turns override |
+| `fork_from` | no | — | Session index to fork from (must be lower). Overrides `session_mode` for this session. |
+| `count` | no | `1` | Run this session N times as independent replicates. Directories get `_rNN` suffix. |
 
 ## CLI
 
@@ -191,7 +239,8 @@ Each session in `sessions` has:
 harness run <config.yaml>                Run an experiment
 harness list [--json]                    List completed runs
 harness inspect <run_dir> [--json]       Show run details
-harness resample <run_dir> --session N --request N --count N   Resample an API turn
+harness resample <run_dir> --session N --request N --count N           Resample an API turn
+harness resample-session <run_dir> --session N --count N               Re-run a session N times
 ```
 
 All commands support `--json` for machine-readable output.
@@ -235,6 +284,16 @@ harness resample runs/my-run --session 1 --request 5 --count 10
 ```
 
 Resample results are saved to `session_NN/resamples/request_NNN/` and can be viewed in the web UI.
+
+### `harness resample-session`
+
+Re-run a forked session N times to study behavioral variance across full trajectories:
+
+```bash
+harness resample-session runs/my-run --session 2 --count 5
+```
+
+This finds session 2's `fork_from` target, resolves the session ID to fork from, and runs 5 new replicates. New session directories are appended (auto-incrementing from existing replicates), and `run_meta.json` is updated.
 
 ## Web UI
 
@@ -285,8 +344,11 @@ runs/<run_name>/
 │   ├── state_before/           # tracked files before this session
 │   ├── state_after/            # tracked files after this session
 │   └── state_diff.patch        # unified diff of changes
-└── session_02/
-    └── ...
+├── session_02/                 # session 2 (count=1)
+│   └── ...
+├── session_03_r01/             # session 3, replicate 1 (count=3)
+├── session_03_r02/             # session 3, replicate 2
+└── session_03_r03/             # session 3, replicate 3
 ```
 
 ### ATIF trajectory
@@ -335,7 +397,9 @@ src/harness/
 ├── atif_adapter.py      # Claude SDK Message -> ATIF Step mapping
 ├── state.py             # File snapshots, diffs, write tracking
 ├── runner.py            # Single session execution
-├── experiment.py        # Multi-session orchestration
+├── experiment.py        # Multi-session orchestration (fork_from, replicates)
+├── resample.py          # Single-turn API resampling
+├── resample_session.py  # Full session resampling (resample-session CLI)
 └── cli.py               # Typer CLI
 ```
 

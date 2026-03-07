@@ -24,6 +24,8 @@ class SessionConfig(BaseModel):
     prompt: str
     system_prompt: str | None = None
     max_turns: int | None = None
+    fork_from: int | None = None  # session index to fork from
+    count: int = Field(default=1, ge=1)  # run this session N times (replicates)
 
 
 class AgentConfig(BaseModel):
@@ -98,6 +100,20 @@ class RunConfig(BaseModel):
                 "Session indices must be contiguous starting at 1. "
                 f"Got: {sorted(indices)}"
             )
+        # Validate fork_from references
+        index_set = set(indices)
+        for s in self.sessions:
+            if s.fork_from is not None:
+                if s.fork_from not in index_set:
+                    raise ValueError(
+                        f"Session {s.session_index} has fork_from={s.fork_from}, "
+                        f"but no session with that index exists."
+                    )
+                if s.fork_from >= s.session_index:
+                    raise ValueError(
+                        f"Session {s.session_index} has fork_from={s.fork_from}, "
+                        f"but fork_from must reference an earlier session."
+                    )
         return self
 
     @model_validator(mode="after")

@@ -220,5 +220,25 @@ def resample(
     ))
 
 
+@app.command(name="resample-session")
+def resample_session(
+    run_dir: Annotated[Path, typer.Argument(help="Path to run directory")],
+    session: Annotated[int, typer.Option(help="Session index to resample")] = 2,
+    count: Annotated[int, typer.Option(help="Number of new replicates")] = 5,
+) -> None:
+    """Re-run a forked session N times to study behavioral variance.
+
+    Reads config.yaml and run_meta.json from the run, finds the fork_from
+    session_id, and runs N new replicates appending to existing ones.
+    """
+    from harness.resample_session import run_resample_session
+
+    asyncio.run(run_resample_session(
+        run_dir=run_dir,
+        session_index=session,
+        count=count,
+    ))
+
+
 if __name__ == "__main__":
     app()

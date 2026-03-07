@@ -42,6 +42,9 @@ class SessionResult:
     tool_call_count: int = 0
     trajectory_path: Path | None = None
     resumed_from: str | None = None
+    fork_from: int | None = None
+    replicate: int | None = None
+    replicate_count: int | None = None
     error: str | None = None
     started_at: str = ""
     finished_at: str = ""

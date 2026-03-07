@@ -2,11 +2,11 @@
 	import type { ToolCall, ObservationResult } from "$lib/types/atif";
 	import { truncate } from "$lib/utils/format";
 
-	let { call, result, runName = "", sessionIndex = 0 }: {
+	let { call, result, runName = "", sessionIndex = 0 as number | string }: {
 		call: ToolCall;
 		result?: ObservationResult;
 		runName?: string;
-		sessionIndex?: number;
+		sessionIndex?: number | string;
 	} = $props();
 	let argsExpanded = $state(false);
 	let resultExpanded = $state(false);

@@ -10,7 +10,7 @@
 		items,
 		stepIds,
 		runName = "",
-		sessionIndex = 0,
+		sessionIndex = 0 as number | string,
 		requestIndex = undefined as number | undefined,
 		canResample = false,
 		existingResampleCount = 0,
@@ -18,7 +18,7 @@
 		items: StepItem[];
 		stepIds: number[];
 		runName?: string;
-		sessionIndex?: number;
+		sessionIndex?: number | string;
 		requestIndex?: number;
 		canResample?: boolean;
 		existingResampleCount?: number;

@@ -45,7 +45,23 @@ export function runPath(runName: string): string {
 	return join(runsDir(), runName);
 }
 
-export function sessionDir(runName: string, sessionIndex: number): string {
-	const idx = String(sessionIndex).padStart(2, "0");
+/**
+ * Get session directory path. Accepts a number (plain session) or
+ * string like "2_r01" (replicate).
+ */
+export function sessionDir(runName: string, sessionKey: number | string): string {
+	if (typeof sessionKey === "number") {
+		const idx = String(sessionKey).padStart(2, "0");
+		return join(runPath(runName), `session_${idx}`);
+	}
+	// Parse "2_r01" → "session_02_r01"
+	const match = sessionKey.match(/^(\d+)_r(\d+)$/);
+	if (match) {
+		const idx = match[1].padStart(2, "0");
+		const rep = match[2].padStart(2, "0");
+		return join(runPath(runName), `session_${idx}_r${rep}`);
+	}
+	// Plain number as string
+	const idx = sessionKey.padStart(2, "0");
 	return join(runPath(runName), `session_${idx}`);
 }

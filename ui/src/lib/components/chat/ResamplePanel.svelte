@@ -46,7 +46,7 @@
 		samples: Sample[];
 		variants?: VariantData[] | null;
 		runName?: string;
-		sessionIndex?: number;
+		sessionIndex?: number | string;
 		requestIndex?: number;
 	} = $props();
 

@@ -19,14 +19,14 @@
 	let {
 		steps,
 		runName = "",
-		sessionIndex = 0,
+		sessionIndex = 0 as number | string,
 		mainRequestIndices = [] as number[],
 		hasRawDumps = false,
 		resamples = {} as Record<number, number>,
 	}: {
 		steps: Step[];
 		runName?: string;
-		sessionIndex?: number;
+		sessionIndex?: number | string;
 		mainRequestIndices?: number[];
 		hasRawDumps?: boolean;
 		resamples?: Record<number, number>;

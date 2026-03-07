@@ -56,69 +56,103 @@ async def run_experiment(config: RunConfig, output_base: Path | None = None) -> 
 
     # Run sessions
     results: list[SessionResult] = []
-    first_session_id: str | None = None
+    # Track session_id by index for fork_from lookups
+    session_ids: dict[int, str | None] = {}
 
     for sc in sorted(config.sessions, key=lambda s: s.session_index):
-        session_dir = run_dir / f"session_{sc.session_index:02d}"
+        replicates = sc.count or 1
 
-        # Determine resume behavior based on session_mode
-        resume_id: str | None = None
-        fork = False
+        for rep in range(1, replicates + 1):
+            # Directory naming: _rNN suffix only when count > 1
+            if replicates == 1:
+                session_dir = run_dir / f"session_{sc.session_index:02d}"
+            else:
+                session_dir = run_dir / f"session_{sc.session_index:02d}_r{rep:02d}"
 
-        if config.session_mode == SessionMode.CHAINED and results:
-            resume_id = results[-1].session_id
-            if resume_id is None:
-                logger.warning(
-                    "Cannot chain session %d: previous session returned no session_id. "
-                    "Falling back to isolated.",
-                    sc.session_index,
+            # Determine resume behavior
+            resume_id: str | None = None
+            fork = False
+
+            if sc.fork_from is not None:
+                # Explicit fork_from overrides session_mode
+                resume_id = session_ids.get(sc.fork_from)
+                fork = True
+                if not resume_id:
+                    logger.warning(
+                        "Cannot fork session %d from %d: no session_id available. "
+                        "Running isolated.",
+                        sc.session_index,
+                        sc.fork_from,
+                    )
+                    fork = False
+            elif config.session_mode == SessionMode.CHAINED and results:
+                resume_id = results[-1].session_id
+                if resume_id is None:
+                    logger.warning(
+                        "Cannot chain session %d: previous session returned no session_id. "
+                        "Falling back to isolated.",
+                        sc.session_index,
+                    )
+            elif config.session_mode == SessionMode.FORKED and session_ids.get(1):
+                resume_id = session_ids[1]
+                fork = True
+
+            # Log
+            mode_desc = config.session_mode.value
+            resume_desc = f", resume={resume_id}" if resume_id else ""
+            fork_desc = ", fork=True" if fork else ""
+            rep_desc = f" r{rep}/{replicates}" if replicates > 1 else ""
+            fork_from_desc = f", fork_from={sc.fork_from}" if sc.fork_from is not None else ""
+            print(
+                f"[session {sc.session_index}{rep_desc}] starting "
+                f"(mode={mode_desc}{fork_from_desc}{resume_desc}{fork_desc})..."
+            )
+
+            try:
+                result = await run_session(
+                    session_config=sc,
+                    run_config=config,
+                    session_dir=session_dir,
+                    state_manager=state,
+                    resume_session_id=resume_id,
+                    fork=fork,
                 )
-        elif config.session_mode == SessionMode.FORKED and first_session_id:
-            resume_id = first_session_id
-            fork = True
+            except Exception as e:
+                logger.exception("Session %d crashed", sc.session_index)
+                result = SessionResult(
+                    session_index=sc.session_index,
+                    error=f"CRASHED: {e}",
+                    started_at=datetime.now(timezone.utc).isoformat(),
+                    finished_at=datetime.now(timezone.utc).isoformat(),
+                )
 
-        mode_desc = config.session_mode.value
-        resume_desc = f", resume={resume_id}" if resume_id else ""
-        fork_desc = ", fork=True" if fork else ""
-        print(f"[session {sc.session_index}] starting (mode={mode_desc}{resume_desc}{fork_desc})...")
+            # Attach fork/replicate metadata
+            result.fork_from = sc.fork_from
+            if replicates > 1:
+                result.replicate = rep
+                result.replicate_count = replicates
 
-        try:
-            result = await run_session(
-                session_config=sc,
-                run_config=config,
-                session_dir=session_dir,
-                state_manager=state,
-                resume_session_id=resume_id,
-                fork=fork,
+            results.append(result)
+
+            # Store session_id from first replicate for downstream fork_from references
+            if rep == 1 and result.session_id:
+                session_ids[sc.session_index] = result.session_id
+
+            status = "ERROR" if result.error else "done"
+            cost_str = f", ${result.total_cost_usd:.4f}" if result.total_cost_usd is not None else ""
+            compact_str = (
+                f", {result.compaction_count} compactions" if result.compaction_count else ""
             )
-        except Exception as e:
-            logger.exception("Session %d crashed", sc.session_index)
-            result = SessionResult(
-                session_index=sc.session_index,
-                error=f"CRASHED: {e}",
-                started_at=datetime.now(timezone.utc).isoformat(),
-                finished_at=datetime.now(timezone.utc).isoformat(),
+            subagent_str = (
+                f", {result.subagent_count} subagents" if result.subagent_count else ""
             )
-        results.append(result)
-
-        if sc.session_index == 1 and result.session_id:
-            first_session_id = result.session_id
-
-        status = "ERROR" if result.error else "done"
-        cost_str = f", ${result.total_cost_usd:.4f}" if result.total_cost_usd is not None else ""
-        compact_str = (
-            f", {result.compaction_count} compactions" if result.compaction_count else ""
-        )
-        subagent_str = (
-            f", {result.subagent_count} subagents" if result.subagent_count else ""
-        )
-        print(
-            f"[session {sc.session_index}] {status} -- "
-            f"{result.step_count} steps, {result.tool_call_count} tool calls"
-            f"{cost_str}{compact_str}{subagent_str}"
-        )
-        if result.error:
-            print(f"  error: {result.error[:200]}")
+            print(
+                f"[session {sc.session_index}{rep_desc}] {status} -- "
+                f"{result.step_count} steps, {result.tool_call_count} tool calls"
+                f"{cost_str}{compact_str}{subagent_str}"
+            )
+            if result.error:
+                print(f"  error: {result.error[:200]}")
 
     # Final state
     state.snapshot(run_dir / "state_final")
@@ -162,6 +196,9 @@ def _build_run_meta(
                 "session_index": r.session_index,
                 "session_id": r.session_id,
                 "resumed_from": r.resumed_from,
+                "fork_from": r.fork_from,
+                **({"replicate": r.replicate} if r.replicate is not None else {}),
+                **({"replicate_count": r.replicate_count} if r.replicate_count is not None else {}),
                 "step_count": r.step_count,
                 "tool_call_count": r.tool_call_count,
                 "num_turns": r.num_turns,
