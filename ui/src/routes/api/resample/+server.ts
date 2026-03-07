@@ -35,9 +35,16 @@ interface VariantMeta {
 function buildHeaders(
 	capturedHeaders: Record<string, string>,
 	apiKey: string,
+	targetUrl: string,
 ): Record<string, string> {
 	const headers: Record<string, string> = { ...capturedHeaders };
-	headers["x-api-key"] = apiKey;
+	if (targetUrl.includes("openrouter.ai")) {
+		headers["Authorization"] = `Bearer ${apiKey}`;
+		delete headers["x-api-key"];
+	} else {
+		headers["x-api-key"] = apiKey;
+		delete headers["Authorization"];
+	}
 	for (const key of Object.keys(headers)) {
 		if (key.toLowerCase().startsWith("x-stainless")) {
 			delete headers[key];
@@ -238,10 +245,6 @@ export const GET: RequestHandler = async ({ url }) => {
 
 /** POST: run new resamples (vanilla or variant) */
 export const POST: RequestHandler = async ({ request }) => {
-	const apiKey = env.ANTHROPIC_API_KEY;
-	if (!apiKey) {
-		return error(500, "ANTHROPIC_API_KEY not configured");
-	}
 
 	const body = (await request.json()) as ResampleRequest;
 	const { runName, sessionIndex, requestIndex, count, variant } = body;
@@ -263,6 +266,14 @@ export const POST: RequestHandler = async ({ request }) => {
 
 	let { requestData } = raw;
 	const { targetUrl, capturedHeaders } = raw;
+
+	// Resolve API key based on target
+	const isOpenRouter = targetUrl.includes("openrouter.ai");
+	const apiKey = isOpenRouter ? env.OPENROUTER_API_KEY : env.ANTHROPIC_API_KEY;
+	if (!apiKey) {
+		const keyName = isOpenRouter ? "OPENROUTER_API_KEY" : "ANTHROPIC_API_KEY";
+		return error(500, `${keyName} not configured`);
+	}
 
 	// Force non-streaming (keep thinking signatures — the API requires them)
 	requestData.stream = false;
@@ -297,7 +308,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		await mkdir(resampleDir, { recursive: true });
 	}
 
-	const headers = buildHeaders(capturedHeaders, apiKey);
+	const headers = buildHeaders(capturedHeaders, apiKey, targetUrl);
 
 	// Find next sample number
 	let nextNum = 1;

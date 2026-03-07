@@ -61,10 +61,18 @@ def _clean_thinking_signatures(messages: list) -> list:
     return cleaned
 
 
-def _build_headers(captured_headers: dict[str, str], api_key: str) -> dict[str, str]:
+def _build_headers(
+    captured_headers: dict[str, str], api_key: str, target_url: str
+) -> dict[str, str]:
     """Build replay headers from captured headers, replacing auth."""
     headers = {**captured_headers}
-    headers["x-api-key"] = api_key
+    # Use the right auth header for the target
+    if "openrouter.ai" in target_url:
+        headers["Authorization"] = f"Bearer {api_key}"
+        headers.pop("x-api-key", None)
+    else:
+        headers["x-api-key"] = api_key
+        headers.pop("Authorization", None)
     # Remove stale/unnecessary headers
     for key in list(headers):
         if key.lower().startswith("x-stainless"):
@@ -122,13 +130,19 @@ async def run_resample(
     if model_override:
         request_data["model"] = model_override
 
-    # Resolve API key
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not api_key:
-        typer.echo("Error: ANTHROPIC_API_KEY not set", err=True)
-        raise typer.Exit(1)
+    # Resolve API key based on target
+    if "openrouter.ai" in target_url:
+        api_key = os.environ.get("OPENROUTER_API_KEY", "")
+        if not api_key:
+            typer.echo("Error: OPENROUTER_API_KEY not set", err=True)
+            raise typer.Exit(1)
+    else:
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            typer.echo("Error: ANTHROPIC_API_KEY not set", err=True)
+            raise typer.Exit(1)
 
-    headers = _build_headers(captured_headers, api_key)
+    headers = _build_headers(captured_headers, api_key, target_url)
 
     # Output directory
     resample_dir = session_dir / "resamples" / f"request_{request_index:03d}"
