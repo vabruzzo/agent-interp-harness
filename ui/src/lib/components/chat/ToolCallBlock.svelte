@@ -83,7 +83,7 @@
 		{/if}
 		<button
 			onclick={() => (argsExpanded = !argsExpanded)}
-			class="text-xs text-muted-foreground/60 hover:text-foreground ml-auto shrink-0 transition-colors"
+			class="text-xs text-muted-foreground hover:text-foreground ml-auto shrink-0 transition-colors"
 		>
 			{argsExpanded ? "hide args" : "args"}
 		</button>

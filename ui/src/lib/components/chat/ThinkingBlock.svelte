@@ -11,7 +11,7 @@
 	onclick={() => (expanded = !expanded)}
 	class="w-full text-left group"
 >
-	<div class="rounded-md px-3 py-2 bg-muted/40 border border-border/50">
+	<div class="rounded-md px-3 py-2 bg-muted/40 border border-border">
 		<div class="flex items-center gap-1.5 text-[11px] text-muted-foreground mb-1">
 			<span class="inline-block w-3 text-center transition-transform {expanded ? 'rotate-90' : ''}">&rsaquo;</span>
 			<span class="font-medium uppercase tracking-wide">Thinking</span>

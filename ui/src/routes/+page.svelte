@@ -25,7 +25,7 @@
 			placeholder="Filter by name, model, or tag..."
 			bind:value={search}
 			style="height: 2.375rem; padding: 0 0.75rem; width: 18rem;"
-			class="text-sm rounded-md border border-input bg-background placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-ring/20 focus:border-ring transition-colors"
+			class="text-sm rounded-md border border-input bg-background placeholder:text-muted-foreground/70 focus:outline-none focus:ring-2 focus:ring-ring/20 focus:border-ring transition-colors"
 		/>
 	</div>
 
@@ -59,7 +59,7 @@
 								{/if}
 								<div class="flex items-center" style="gap: 0.5rem; margin-top: 0.375rem;">
 									<span class="text-xs text-muted-foreground">{run.provider}</span>
-									<span class="text-xs text-muted-foreground/40">&middot;</span>
+									<span class="text-xs text-muted-foreground/70">&middot;</span>
 									<span class="text-xs text-muted-foreground">{run.session_mode}</span>
 								</div>
 							</td>
@@ -72,7 +72,7 @@
 							<td style="padding: 1rem 1.25rem;">
 								<div class="flex flex-wrap" style="gap: 0.375rem;">
 									{#each run.tags as tag}
-										<span class="rounded-full text-xs border border-border text-foreground/70" style="padding: 0.125rem 0.5rem;">{tag}</span>
+										<span class="rounded-full text-xs border border-border text-foreground/80" style="padding: 0.125rem 0.5rem;">{tag}</span>
 									{/each}
 								</div>
 							</td>

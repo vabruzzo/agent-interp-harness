@@ -96,12 +96,18 @@ class ATIFAdapter:
         Messages with parent_tool_use_id matching a known subagent are routed
         to the child adapter (if capturing) and excluded from the parent trajectory.
         """
-        # Route subagent-internal messages away from parent trajectory
+        # Route subagent-internal messages away from parent trajectory.
+        # Exception: UserMessages with tool_use_result set are the subagent's
+        # RETURN value — these should be processed by the parent as observations.
         parent_id = getattr(msg, "parent_tool_use_id", None)
         if parent_id and parent_id in self._subagent_tool_ids:
-            if self._capture_subagents and parent_id in self._subagent_adapters:
-                self._subagent_adapters[parent_id].process_message(msg, extra)
-            return None
+            is_subagent_return = (
+                isinstance(msg, UserMessage) and msg.tool_use_result is not None
+            )
+            if not is_subagent_return:
+                if self._capture_subagents and parent_id in self._subagent_adapters:
+                    self._subagent_adapters[parent_id].process_message(msg, extra)
+                return None
 
         if isinstance(msg, AssistantMessage):
             return self._process_assistant(msg, extra)

@@ -143,6 +143,80 @@ async function nextVariantId(resamplesDir: string, pad: string): Promise<string>
 	}
 }
 
+/**
+ * Parse an SSE response file to extract the assistant's content blocks.
+ * Handles interleaved blocks (multiple blocks streaming concurrently).
+ * Returns an array of content blocks (text, thinking, tool_use, etc.)
+ */
+async function parseResponseContent(
+	dir: string,
+	pad: string,
+): Promise<Record<string, unknown>[] | null> {
+	try {
+		const respPath = join(dir, "raw_dumps", `response_${pad}.txt`);
+		const sseBody = await readFile(respPath, "utf-8");
+		// Track blocks by index (SSE can interleave multiple blocks)
+		const activeBlocks = new Map<number, Record<string, unknown>>();
+		const finishedBlocks: { index: number; block: Record<string, unknown> }[] = [];
+
+		for (const chunk of sseBody.split("\n\n")) {
+			const lines = chunk.trim().split("\n");
+			let eventType: string | null = null;
+			let dataStr: string | null = null;
+			for (const line of lines) {
+				if (line.startsWith("event: ")) eventType = line.slice(7).trim();
+				else if (line.startsWith("data: ")) dataStr = line.slice(6);
+			}
+			if (!eventType || !dataStr) continue;
+			try {
+				const data = JSON.parse(dataStr);
+				const idx: number = data.index ?? 0;
+				if (eventType === "content_block_start") {
+					const block = { ...data.content_block };
+					if (block.type === "text") block.text = "";
+					if (block.type === "thinking") block.thinking = "";
+					activeBlocks.set(idx, block);
+				} else if (eventType === "content_block_delta") {
+					const block = activeBlocks.get(idx);
+					if (!block) continue;
+					const delta = data.delta;
+					if (delta?.type === "text_delta" && block.type === "text") {
+						block.text = (block.text as string) + (delta.text || "");
+					} else if (delta?.type === "thinking_delta" && block.type === "thinking") {
+						block.thinking = (block.thinking as string) + (delta.thinking || "");
+					} else if (delta?.type === "input_json_delta" && block.type === "tool_use") {
+						block._inputJson =
+							((block._inputJson as string) || "") + (delta.partial_json || "");
+					}
+				} else if (eventType === "content_block_stop") {
+					const block = activeBlocks.get(idx);
+					if (block) {
+						// Parse accumulated tool_use input
+						if (block.type === "tool_use" && block._inputJson) {
+							try {
+								block.input = JSON.parse(block._inputJson as string);
+							} catch {
+								// leave input as-is
+							}
+							delete block._inputJson;
+						}
+						finishedBlocks.push({ index: idx, block });
+						activeBlocks.delete(idx);
+					}
+				}
+			} catch {
+				// skip malformed
+			}
+		}
+		// Sort by original index order
+		finishedBlocks.sort((a, b) => a.index - b.index);
+		const blocks = finishedBlocks.map((fb) => fb.block);
+		return blocks.length > 0 ? blocks : null;
+	} catch {
+		return null;
+	}
+}
+
 /** Load the raw request + headers for a given request index */
 async function loadRawRequest(dir: string, pad: string) {
 	const rawPath = join(dir, "raw_dumps", `request_${pad}.json`);
@@ -229,8 +303,9 @@ export const GET: RequestHandler = async ({ url }) => {
 		// no resamples dir
 	}
 
-	// Optionally load raw request messages for the editor
+	// Optionally load raw request messages + response content for the editor
 	let rawMessages: unknown[] | undefined;
+	let responseContent: unknown[] | undefined;
 	if (url.searchParams.get("includeRaw") === "true") {
 		try {
 			const raw = await loadRawRequest(dir, pad);
@@ -238,9 +313,11 @@ export const GET: RequestHandler = async ({ url }) => {
 		} catch {
 			// no raw dump
 		}
+		// Also parse the response to get the assistant's output content blocks
+		responseContent = (await parseResponseContent(dir, pad)) ?? undefined;
 	}
 
-	return json({ samples, variants, rawMessages });
+	return json({ samples, variants, rawMessages, responseContent });
 };
 
 /** POST: run new resamples (vanilla or variant) */
@@ -278,7 +355,7 @@ export const POST: RequestHandler = async ({ request }) => {
 	// Force non-streaming (keep thinking signatures — the API requires them)
 	requestData.stream = false;
 
-	// Determine output directory
+	// Determine output directory (always keyed off the original requestIndex)
 	let resampleDir: string;
 	const resamplesDir = join(dir, "resamples");
 

@@ -41,6 +41,7 @@
 	// Editor state
 	let showEditor = $state(false);
 	let editorMessages = $state<unknown[] | null>(null);
+	let editorResponseContent = $state<unknown[] | null>(null);
 	let isLoadingEditor = $state(false);
 
 	// Element refs for scroll-into-view
@@ -127,6 +128,7 @@
 				return;
 			}
 			editorMessages = data.rawMessages;
+			editorResponseContent = data.responseContent ?? null;
 			showEditor = true;
 			// Scroll editor into view
 			requestAnimationFrame(() => editorEl?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
@@ -186,7 +188,9 @@
 	);
 </script>
 
-<div class="max-w-4xl">
+<div class="max-w-4xl" id="step-{stepIds[0]}">
+	<!-- Hidden anchors for all step IDs in this group so deep links work -->
+	{#each stepIds.slice(1) as sid}<span id="step-{sid}"></span>{/each}
 	<div class="rounded-lg border border-border bg-card px-4 py-3 space-y-3">
 		{#each items as item}
 			{#if item.kind === "thinking"}
@@ -207,14 +211,14 @@
 
 	<!-- Footer: step range + resample/edit buttons -->
 	<div class="flex items-center gap-3 mt-1.5 ml-1">
-		<span class="text-xs text-muted-foreground/50">{stepRange}</span>
+		<a href="#step-{stepIds[0]}" class="text-xs text-muted-foreground/70 hover:text-muted-foreground transition-colors">{stepRange}</a>
 
 		{#if canResample}
-			<span class="text-muted-foreground/30">|</span>
+			<span class="text-muted-foreground/50">|</span>
 
 			<button
 				onclick={() => (showResampleForm = !showResampleForm)}
-				class="text-xs text-muted-foreground/60 hover:text-foreground transition-colors"
+				class="text-xs text-muted-foreground hover:text-foreground transition-colors"
 			>
 				{#if totalSamples > 0}
 					{totalSamples} resamples
@@ -226,13 +230,13 @@
 			<button
 				onclick={openEditor}
 				disabled={isLoadingEditor}
-				class="text-xs text-violet-600 dark:text-violet-400/60 hover:text-violet-800 dark:hover:text-violet-300 transition-colors"
+				class="text-xs text-violet-600 dark:text-violet-400 hover:text-violet-800 dark:hover:text-violet-300 transition-colors"
 			>
 				{isLoadingEditor ? "Loading..." : "Edit & Resample"}
 			</button>
 
 			{#if requestIndex !== undefined}
-				<span class="text-[11px] text-muted-foreground/40 font-mono"
+				<span class="text-[11px] text-muted-foreground/60 font-mono"
 					>req#{requestIndex}</span
 				>
 			{/if}
@@ -292,6 +296,7 @@
 			{:else}
 				<MessageEditor
 					messages={editorMessages as any}
+					responseContent={editorResponseContent as any}
 					lastN={8}
 					onsubmit={handleVariantSubmit}
 				/>

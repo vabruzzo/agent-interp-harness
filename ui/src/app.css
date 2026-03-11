@@ -83,6 +83,10 @@
 	body {
 		@apply bg-background text-foreground font-sans antialiased;
 	}
+	/* Offset anchor scroll targets so they clear the sticky header */
+	[id^="step-"] {
+		scroll-margin-top: 4.5rem;
+	}
 	/* Override prose typography to use our theme foreground for better contrast */
 	.prose {
 		--tw-prose-body: var(--foreground);

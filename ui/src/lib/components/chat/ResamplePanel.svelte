@@ -96,7 +96,7 @@
 	<!-- Source tabs (when variants exist) -->
 	{#if variants.length > 0}
 		<div
-			class="flex items-center gap-1 px-3 py-1.5 border-b border-border/50 overflow-x-auto"
+			class="flex items-center gap-1 px-3 py-1.5 border-b border-border overflow-x-auto"
 		>
 			<button
 				onclick={() => {
@@ -153,7 +153,7 @@
 		{#if runName && requestIndex !== undefined}
 			<a
 				href="/runs/{runName}/sessions/{sessionIndex}/resamples?request={requestIndex}"
-				class="ml-auto text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors"
+				class="ml-auto text-[11px] text-muted-foreground hover:text-foreground transition-colors"
 			>
 				Full view &rarr;
 			</a>
@@ -180,13 +180,13 @@
 							{@html html}
 						</div>
 					{:else if block.type === "tool_use"}
-						<div class="rounded-md border border-border/50 bg-muted/30 px-3 py-2">
+						<div class="rounded-md border border-border bg-muted/30 px-3 py-2">
 							<div class="text-[11px] text-muted-foreground font-medium mb-1">
 								Tool: <span class="font-mono">{block.name}</span>
 							</div>
 							{#if block.input}
 								<pre
-									class="text-[10px] text-muted-foreground/80 font-mono whitespace-pre-wrap">{formatToolInput(block.input)}</pre>
+									class="text-[10px] text-muted-foreground font-mono whitespace-pre-wrap">{formatToolInput(block.input)}</pre>
 							{/if}
 						</div>
 					{/if}
@@ -195,7 +195,7 @@
 				<!-- Usage summary -->
 				{#if activeSample.usage}
 					<div
-						class="flex items-center gap-3 pt-2 border-t border-border/50 text-[10px] text-muted-foreground/60 tabular-nums"
+						class="flex items-center gap-3 pt-2 border-t border-border text-[10px] text-muted-foreground tabular-nums"
 					>
 						{#if activeSample.usage.input_tokens}
 							<span>{activeSample.usage.input_tokens.toLocaleString()} input</span>
@@ -211,6 +211,6 @@
 			{/if}
 		</div>
 	{:else if activeSamples.length === 0}
-		<div class="px-4 py-3 text-xs text-muted-foreground/50">No samples yet</div>
+		<div class="px-4 py-3 text-xs text-muted-foreground">No samples yet</div>
 	{/if}
 </div>

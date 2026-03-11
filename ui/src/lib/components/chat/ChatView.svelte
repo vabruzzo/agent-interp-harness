@@ -41,22 +41,52 @@
 			.join("\n");
 	}
 
-	// Build a map of tool_call_id → ObservationResult from all steps
-	function buildResultMap(allSteps: Step[]): Map<string, ObservationResult> {
+	/**
+	 * Detect if a user message is a raw SDK ToolResultBlock string
+	 * (subagent trajectories store tool results this way).
+	 * Returns the tool_use_id if it is, null otherwise.
+	 */
+	function parseToolResultMessage(msg: string): { toolUseId: string; content: string } | null {
+		if (!msg.startsWith("ToolResultBlock(")) return null;
+		const idMatch = msg.match(/tool_use_id='([^']+)'/);
+		if (!idMatch) return null;
+		// Extract content between content=' and the closing ', is_error
+		const contentMatch = msg.match(/content='([\s\S]*)',\s*is_error/);
+		const content = contentMatch ? contentMatch[1] : "";
+		return { toolUseId: idMatch[1], content };
+	}
+
+	// Build a map of tool_call_id → ObservationResult from all steps.
+	// Also parses subagent-style ToolResultBlock user messages.
+	function buildResultMap(allSteps: Step[]): { resultMap: Map<string, ObservationResult>; toolResultStepIds: Set<number> } {
 		const map = new Map<string, ObservationResult>();
+		const toolResultStepIds = new Set<number>();
+
 		for (const step of allSteps) {
+			// Standard observation results
 			if (step.observation?.results) {
 				for (const r of step.observation.results) {
 					if (r.source_call_id) map.set(r.source_call_id, r);
 				}
 			}
+			// Subagent-style: user messages containing ToolResultBlock(...)
+			if (step.source === "user" && typeof step.message === "string") {
+				const parsed = parseToolResultMessage(step.message);
+				if (parsed) {
+					map.set(parsed.toolUseId, {
+						source_call_id: parsed.toolUseId,
+						content: parsed.content,
+					});
+					toolResultStepIds.add(step.step_id);
+				}
+			}
 		}
-		return map;
+		return { resultMap: map, toolResultStepIds };
 	}
 
 	let groups = $derived.by(() => {
 		const result: StepGroupData[] = [];
-		const resultMap = buildResultMap(steps);
+		const { resultMap, toolResultStepIds } = buildResultMap(steps);
 		let agentGroupCounter = 0;
 
 		function newAgentGroup(): StepGroupData {
@@ -74,6 +104,10 @@
 
 		for (const step of steps) {
 			if (step.source !== "agent") {
+				// Skip user messages that are just tool results (subagent format)
+				if (toolResultStepIds.has(step.step_id)) {
+					continue;
+				}
 				current = null;
 				result.push({
 					source: step.source as "user" | "system",
