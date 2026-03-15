@@ -83,6 +83,12 @@
 	body {
 		@apply bg-background text-foreground font-sans antialiased;
 	}
+	button:not(:disabled) {
+		cursor: pointer;
+	}
+	button:disabled {
+		cursor: not-allowed;
+	}
 	/* Offset anchor scroll targets so they clear the sticky header */
 	[id^="step-"] {
 		scroll-margin-top: 4.5rem;

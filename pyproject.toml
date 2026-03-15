@@ -1,5 +1,5 @@
 [project]
-name = "agent-interp-harness"
+name = "agentlens"
 version = "0.1.0"
 description = "Multi-session agent interpretability harness"
 readme = "README.md"

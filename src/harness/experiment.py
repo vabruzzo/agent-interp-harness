@@ -1,9 +1,9 @@
 """Multi-session experiment orchestrator.
 
 Runs sessions sequentially, passing session IDs forward based on session_mode:
-- isolated: no resume, fresh each time
-- chained: resume from previous session_id
-- forked: fork from first session_id
+- isolated: reset to baseline before each session
+- chained: cumulative changes, no reset
+- forked: reset to fork point before each session
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ import yaml
 
 from harness.config import RunConfig, SessionMode
 from harness.runner import SessionResult, run_session
+from harness.shadow_git import ShadowGit
 from harness.state import StateManager
 
 logger = logging.getLogger(__name__)
@@ -46,13 +47,17 @@ async def run_experiment(config: RunConfig, output_base: Path | None = None) -> 
     with open(run_dir / "config.yaml", "w") as f:
         yaml.dump(config.model_dump(mode="json"), f, default_flow_style=False, sort_keys=False)
 
-    # Initialize state manager
-    state = StateManager(
-        repo_path=Path(config.repo_path),
-        tracked_files=config.tracked_files,
-    )
-    state.seed()
-    state.snapshot(run_dir / "state_init")
+    # Initialize shadow git
+    work_dir = Path(config.work_dir).resolve()
+    shadow_git = ShadowGit(work_dir=work_dir, git_dir=run_dir / ".shadow_git")
+    shadow_git.init()
+
+    # Initialize state manager and seed memory file
+    state = StateManager(work_dir=work_dir, shadow_git=shadow_git)
+    state.seed_memory(config.memory_file, config.memory_seed)
+
+    # Commit baseline (captures full working directory state)
+    shadow_git.commit_baseline()
 
     # Run sessions
     results: list[SessionResult] = []
@@ -72,17 +77,18 @@ async def run_experiment(config: RunConfig, output_base: Path | None = None) -> 
             # Determine resume behavior
             resume_id: str | None = None
             fork = False
+            fork_from = sc.fork_from
 
-            if sc.fork_from is not None:
+            if fork_from is not None:
                 # Explicit fork_from overrides session_mode
-                resume_id = session_ids.get(sc.fork_from)
+                resume_id = session_ids.get(fork_from)
                 fork = True
                 if not resume_id:
                     logger.warning(
                         "Cannot fork session %d from %d: no session_id available. "
                         "Running isolated.",
                         sc.session_index,
-                        sc.fork_from,
+                        fork_from,
                     )
                     fork = False
             elif config.session_mode == SessionMode.CHAINED and results:
@@ -97,12 +103,17 @@ async def run_experiment(config: RunConfig, output_base: Path | None = None) -> 
                 resume_id = session_ids[1]
                 fork = True
 
+            # Prepare working directory for this session
+            shadow_git.begin_session(
+                sc.session_index, config.session_mode, fork_from=fork_from
+            )
+
             # Log
             mode_desc = config.session_mode.value
             resume_desc = f", resume={resume_id}" if resume_id else ""
             fork_desc = ", fork=True" if fork else ""
             rep_desc = f" r{rep}/{replicates}" if replicates > 1 else ""
-            fork_from_desc = f", fork_from={sc.fork_from}" if sc.fork_from is not None else ""
+            fork_from_desc = f", fork_from={fork_from}" if fork_from is not None else ""
             print(
                 f"[session {sc.session_index}{rep_desc}] starting "
                 f"(mode={mode_desc}{fork_from_desc}{resume_desc}{fork_desc})..."
@@ -126,8 +137,18 @@ async def run_experiment(config: RunConfig, output_base: Path | None = None) -> 
                     finished_at=datetime.now(timezone.utc).isoformat(),
                 )
 
+            # Finalize session in shadow git (commit + tag)
+            replicate_num = rep if replicates > 1 else None
+            shadow_git.end_session(sc.session_index, replicate=replicate_num)
+
+            # Save session diff as artifact
+            session_diff = shadow_git.get_session_diff(
+                sc.session_index, config.session_mode, fork_from=fork_from
+            )
+            (session_dir / "session_diff.patch").write_text(session_diff or "# No changes\n")
+
             # Attach fork/replicate metadata
-            result.fork_from = sc.fork_from
+            result.fork_from = fork_from
             if replicates > 1:
                 result.replicate = rep
                 result.replicate_count = replicates
@@ -154,8 +175,11 @@ async def run_experiment(config: RunConfig, output_base: Path | None = None) -> 
             if result.error:
                 print(f"  error: {result.error[:200]}")
 
-    # Final state
-    state.snapshot(run_dir / "state_final")
+    # Save full diff (baseline → final state)
+    full_diff = shadow_git.diff_from_ref("baseline")
+    (run_dir / "full_diff.patch").write_text(full_diff or "# No changes\n")
+
+    # Save changelog
     state.save_changelog(run_dir / "state_changelog.jsonl")
 
     # Build run metadata
@@ -185,9 +209,9 @@ def _build_run_meta(
         "model": config.model,
         "provider": config.provider,
         "sdk_version": _get_version("claude-agent-sdk"),
-        "harness_version": _get_version("agent-interp-harness"),
+        "harness_version": _get_version("agentlens"),
         "session_mode": config.session_mode.value,
-        "repo_path": config.repo_path,
+        "work_dir": config.work_dir,
         "repo_name": config.repo_name,
         "tags": config.tags,
         "session_count": len(results),

@@ -32,7 +32,7 @@ export interface RunMeta {
 	sdk_version?: string;
 	harness_version?: string;
 	session_mode: "isolated" | "chained" | "forked";
-	repo_path: string;
+	work_dir: string;
 	repo_name: string | null;
 	tags: string[];
 	session_count: number;

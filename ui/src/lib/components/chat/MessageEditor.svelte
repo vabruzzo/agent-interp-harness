@@ -199,7 +199,7 @@
 						<div class="rounded border border-border/60 bg-muted/10 overflow-hidden">
 							<button
 								onclick={() => toggleReminder(rKey)}
-								class="w-full flex items-center gap-1.5 px-2 py-1 text-left"
+								class="w-full flex items-center gap-1.5 px-2 py-1 text-left hover:bg-muted/30 transition-colors"
 							>
 								<span class="text-[9px] text-muted-foreground/60 transition-transform {isOpen ? 'rotate-90' : ''}">&rsaquo;</span>
 								<span class="text-[9px] text-muted-foreground/60 uppercase tracking-wider">system-reminder</span>
@@ -259,7 +259,7 @@
 		<div class="rounded-md border border-border/50 bg-muted/20 overflow-hidden">
 			<button
 				onclick={() => (showResponse = !showResponse)}
-				class="w-full flex items-center gap-2 px-3 py-1.5 text-left"
+				class="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-muted/40 transition-colors"
 			>
 				<span class="text-[9px] text-muted-foreground/60 transition-transform {showResponse ? 'rotate-90' : ''}">&rsaquo;</span>
 				<span class="text-[9px] text-muted-foreground/70 uppercase tracking-wider">output</span>

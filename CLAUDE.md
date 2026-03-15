@@ -1,4 +1,4 @@
-# agent-interp-harness
+# AgentLens
 
 Harness for running multi-session Claude Code experiments and capturing trajectories in ATIF format. Built for agent interpretability research.
 
@@ -6,12 +6,13 @@ Harness for running multi-session Claude Code experiments and capturing trajecto
 
 ```
 src/harness/
-  config.py          # Pydantic models: RunConfig, SessionConfig, AgentConfig, TrackedFile
+  config.py          # Pydantic models: RunConfig, SessionConfig, AgentConfig
   cli.py             # Typer CLI: harness run/list/inspect/resample
   experiment.py      # Multi-session orchestrator
   runner.py          # Single session executor (Claude Agent SDK)
   atif_adapter.py    # SDK messages → ATIF steps
-  state.py           # File snapshots, diffs, write tracking
+  state.py           # Per-step write tracking via shadow git
+  shadow_git.py      # Shadow git: invisible change tracking for working directory
   proxy.py           # Reverse proxy for raw API request capture
   resample.py        # Resample implementation
 
@@ -22,7 +23,7 @@ ui/                  # SvelteKit web UI for exploring runs
 examples/            # Example configs (isolated.yaml, chained.yaml)
 tests/               # Test configs (smoke.yaml, subagent.yaml)
 experiments/         # Real experiment configs
-repos/               # Target repos for experiments
+repos/               # Target repos/working directories for experiments
 runs/                # Output directory (gitignored)
 ```
 
@@ -38,12 +39,12 @@ harness inspect runs/<name>                  # Inspect run
 
 ## Config format (YAML)
 
-Required fields: `model`, `repo_path`, `sessions`
+Required fields: `model`, `work_dir`, `sessions`
 
 ```yaml
 model: "claude-sonnet-4-20250514"      # Anthropic model name
 provider: openrouter                    # openrouter | anthropic | bedrock | vertex
-repo_path: "./repos/my_repo"           # Target codebase
+work_dir: "./repos/my_repo"            # Working directory (any directory, not just repos)
 session_mode: isolated                  # isolated | chained | forked
 system_prompt: "..."                    # Shared system prompt
 max_turns: 30                           # Per-session turn limit
@@ -52,9 +53,8 @@ capture_api_requests: true              # Required for resampling
 max_budget_usd: 2.00                    # Spend cap per session
 tags: ["tag1"]
 
-tracked_files:
-  - path: "MEMORY.md"
-    seed_content: "# Notes\n"
+memory_file: "MEMORY.md"               # Auto-seeded memory file (default: MEMORY.md)
+memory_seed: "# Notes\n"               # Initial content for memory file
 
 sessions:
   - session_index: 1
@@ -70,10 +70,19 @@ agents:                                 # Subagents (optional)
     model: "sonnet"                     # sonnet | opus | haiku | inherit
 ```
 
+### Shadow git (change tracking)
+
+All file changes in the working directory are tracked automatically via a shadow git repo stored in the run output directory (`.shadow_git/`). The agent never sees this repo — it uses `GIT_DIR`/`GIT_WORK_TREE` env vars to stay invisible.
+
+This enables:
+- **Full diffs**: every file change is captured, not just declared files
+- **Replay**: reset the working directory to baseline and re-run the same prompt
+- **Per-step attribution**: file writes are detected after each tool-using step
+
 ### Session modes
-- **isolated**: Each session starts fresh. Agent only knows what's in tracked files.
-- **chained**: Each session resumes prior conversation. Full context preserved.
-- **forked**: Sessions 2+ fork from session 1. Each sees session 1 but not siblings.
+- **isolated**: Working directory resets to baseline before each session
+- **chained**: Changes accumulate across sessions (no reset)
+- **forked**: Sessions 2+ reset to the state after session 1 (or specified fork point)
 
 ### Providers
 - `openrouter` (default): needs `OPENROUTER_API_KEY`
@@ -105,5 +114,5 @@ harness run tests/smoke.yaml          # Smoke test
 - Configs go in `experiments/` for real experiments, `tests/` for test configs
 - Always set `capture_api_requests: true` if you want to resample or inspect raw API calls
 - Always set `permission_mode: bypassPermissions` for unattended runs
-- Use `tracked_files` with `seed_content` for files you want to track across sessions
+- MEMORY.md is automatically seeded in the working directory (configurable via `memory_file`/`memory_seed`)
 - The UI reads from `runs/` directory; run name becomes the URL slug

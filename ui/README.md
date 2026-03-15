@@ -1,6 +1,6 @@
 # AgentLens
 
-Local web UI for browsing agent-interp-harness runs. View trajectories as chat conversations, inspect memory diffs, API captures, and state changelogs.
+Local web UI for browsing AgentLens runs. View trajectories as chat conversations, inspect memory diffs, API captures, and state changelogs.
 
 ## Setup
 

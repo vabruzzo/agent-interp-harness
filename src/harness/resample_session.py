@@ -15,8 +15,9 @@ from pathlib import Path
 import typer
 import yaml
 
-from harness.config import RunConfig, load_config
+from harness.config import load_config
 from harness.runner import SessionResult, run_session
+from harness.shadow_git import ShadowGit
 from harness.state import StateManager
 
 logger = logging.getLogger(__name__)
@@ -110,12 +111,19 @@ async def run_resample_session(
     else:
         next_num = 1
 
+    # Initialize shadow git (reuse existing from original run)
+    work_dir = Path(config.work_dir).resolve()
+    shadow_git_dir = run_dir / ".shadow_git"
+    shadow_git = ShadowGit(work_dir=work_dir, git_dir=shadow_git_dir)
+
+    # If no shadow git from original run, create one fresh
+    if not shadow_git_dir.exists():
+        shadow_git.init()
+        shadow_git.commit_baseline()
+
     # Initialize state manager
-    state = StateManager(
-        repo_path=Path(config.repo_path),
-        tracked_files=config.tracked_files,
-    )
-    state.seed()
+    state = StateManager(work_dir=work_dir, shadow_git=shadow_git)
+    state.seed_memory(config.memory_file, config.memory_seed)
 
     typer.echo(
         f"Resampling session {session_index} "
@@ -129,6 +137,9 @@ async def run_resample_session(
     for i in range(count):
         rep = next_num + i
         session_dir = run_dir / f"session_{session_index:02d}_r{rep:02d}"
+
+        # Reset working directory to baseline before each replicate
+        shadow_git.hard_reset_to("baseline")
 
         typer.echo(f"  Replicate {rep}...", nl=False)
 
@@ -149,6 +160,13 @@ async def run_resample_session(
                 started_at=datetime.now(timezone.utc).isoformat(),
                 finished_at=datetime.now(timezone.utc).isoformat(),
             )
+
+        # Commit and tag this replicate
+        shadow_git.end_session(session_index, replicate=rep)
+
+        # Save session diff
+        session_diff = shadow_git.diff_from_ref("baseline")
+        (session_dir / "session_diff.patch").write_text(session_diff or "# No changes\n")
 
         result.fork_from = fork_from
         result.replicate = rep

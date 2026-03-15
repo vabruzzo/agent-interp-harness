@@ -1,6 +1,6 @@
 model: "claude-sonnet-4-20250514"
 provider: openrouter
-repo_path: "./repos/test_repo"
+work_dir: "./repos/test_repo"
 session_mode: isolated
 tags: ["smoke-test"]
 
@@ -10,9 +10,7 @@ system_prompt: |
 max_turns: 10
 permission_mode: bypassPermissions
 
-tracked_files:
-  - path: "MEMORY.md"
-    seed_content: "# Project Notes\n"
+memory_seed: "# Project Notes\n"
 
 sessions:
   - session_index: 1

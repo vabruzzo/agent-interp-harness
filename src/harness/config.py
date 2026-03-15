@@ -11,6 +11,16 @@ import yaml
 from pydantic import BaseModel, Field, model_validator
 
 
+__all__ = [
+    "SessionMode",
+    "SessionConfig",
+    "AgentConfig",
+    "RunConfig",
+    "load_config",
+    "build_provider_env",
+]
+
+
 class SessionMode(str, Enum):
     ISOLATED = "isolated"
     CHAINED = "chained"
@@ -38,13 +48,6 @@ class AgentConfig(BaseModel):
     model: Literal["sonnet", "opus", "haiku", "inherit"] | None = None
 
 
-class TrackedFile(BaseModel):
-    """A file to track across sessions."""
-
-    path: str  # relative to repo_path
-    seed_content: str | None = None
-
-
 class RunConfig(BaseModel):
     """Top-level run configuration."""
 
@@ -58,8 +61,8 @@ class RunConfig(BaseModel):
     provider: str = "openrouter"
     base_url: str | None = None
 
-    # target codebase
-    repo_path: str
+    # working directory
+    work_dir: str
     repo_name: str | None = None
 
     # sessions
@@ -74,8 +77,9 @@ class RunConfig(BaseModel):
     max_turns: int = 50
     permission_mode: str = "acceptEdits"
 
-    # state tracking
-    tracked_files: list[TrackedFile] = []
+    # memory file (auto-seeded in working directory)
+    memory_file: str = "MEMORY.md"
+    memory_seed: str = "# Notes\n"
 
     # subagents
     agents: list[AgentConfig] = []
@@ -114,16 +118,6 @@ class RunConfig(BaseModel):
                         f"Session {s.session_index} has fork_from={s.fork_from}, "
                         f"but fork_from must reference an earlier session."
                     )
-        return self
-
-    @model_validator(mode="after")
-    def _ensure_memory_tracked(self) -> "RunConfig":
-        """Ensure MEMORY.md is always tracked."""
-        paths = {tf.path for tf in self.tracked_files}
-        if "MEMORY.md" not in paths:
-            self.tracked_files.append(
-                TrackedFile(path="MEMORY.md", seed_content="# Notes\n")
-            )
         return self
 
 

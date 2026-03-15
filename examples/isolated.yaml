@@ -1,6 +1,6 @@
 model: "claude-sonnet-4-5"
 provider: anthropic
-repo_path: "./repos/test_repo"
+work_dir: "./repos/test_repo"
 session_mode: isolated
 tags: ["test", "isolated"]
 
@@ -19,9 +19,7 @@ max_turns: 30
 permission_mode: acceptEdits
 load_project_settings: false
 
-tracked_files:
-  - path: "MEMORY.md"
-    seed_content: "# Project Notes\n"
+memory_seed: "# Project Notes\n"
 
 sessions:
   - session_index: 1

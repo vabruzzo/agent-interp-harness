@@ -1,4 +1,4 @@
-# agent-interp-harness
+# AgentLens
 
 A harness for running multi-session agent trajectories using the Claude Agent SDK, capturing them in [ATIF](https://harborframework.com/docs/agents/trajectory-format) (Agent Trajectory Interchange Format), and tracking file state changes across sessions.
 
@@ -6,12 +6,14 @@ Built for agent interpretability research — studying how LLM agents behave acr
 
 ## What it does
 
-The harness takes a YAML config describing a sequence of sessions (prompts to an agent), runs each session against a target repository via the Claude Agent SDK, and produces structured outputs:
+The harness takes a YAML config describing a sequence of sessions (prompts to an agent), runs each session against a working directory via the Claude Agent SDK, and produces structured outputs:
 
 - **ATIF trajectories** — standardized JSON capturing every agent step, tool call, observation, and thinking block
-- **File state tracking** — snapshots, unified diffs, and per-step write attribution across sessions
+- **Shadow git change tracking** — automatic tracking of all file changes via an invisible git repo, with per-step write attribution and full unified diffs
 - **Session chaining** — three modes for controlling how sessions relate to each other (isolated, chained, forked)
+- **Replay** — reset the working directory to baseline and re-run the same prompt to study variance
 - **Subagent capture** — separate ATIF trajectories for each subagent invocation, linked to the parent via `SubagentTrajectoryRef`
+- **Resampling** — replay specific API turns or entire sessions to study output variance, with intervention testing (edit inputs and resample)
 
 ## Install
 
@@ -19,7 +21,7 @@ Requires Python >= 3.12 and [uv](https://docs.astral.sh/uv/).
 
 ```bash
 git clone <this-repo>
-cd agent-interp-harness
+cd agentlens
 uv sync
 ```
 
@@ -41,6 +43,13 @@ Inspect results:
 
 ```bash
 harness inspect runs/<run-name>
+```
+
+Browse in the web UI:
+
+```bash
+cd ui && npm install && npm run dev
+# Open http://localhost:5173
 ```
 
 ## Providers
@@ -76,7 +85,7 @@ Experiments are defined as YAML config files. Here's a full example:
 model: "claude-sonnet-4-20250514"
 provider: openrouter                    # openrouter | anthropic | bedrock | vertex
 hypothesis: "The agent preserves hedging across sessions"  # what this experiment tests
-repo_path: "./repos/my_project"        # target codebase the agent works in
+work_dir: "./repos/my_project"          # working directory the agent operates in
 session_mode: chained                   # isolated | chained | forked
 tags: ["experiment-1"]
 
@@ -96,9 +105,8 @@ permission_mode: acceptEdits            # acceptEdits | bypassPermissions
 max_budget_usd: 1.00                    # optional spend cap per session
 load_project_settings: false            # whether to load the repo's CLAUDE.md
 
-tracked_files:                          # files to snapshot and diff across sessions
-  - path: "MEMORY.md"
-    seed_content: "# Project Notes\n"   # optional initial content
+memory_file: "MEMORY.md"               # auto-seeded file in working dir (default: MEMORY.md)
+memory_seed: "# Project Notes\n"        # initial content if file doesn't exist
 
 sessions:
   - session_index: 1
@@ -110,19 +118,31 @@ sessions:
     max_turns: 10                       # per-session override
 ```
 
+### Shadow git (change tracking)
+
+All file changes in the working directory are tracked automatically via a **shadow git** — a bare git repo stored in the run output directory (`.shadow_git/`). The agent never sees this repo; it uses `GIT_DIR`/`GIT_WORK_TREE` env vars to stay invisible.
+
+This enables:
+- **Full diffs** — every file change is captured automatically, no need to declare files upfront
+- **Replay** — reset the working directory to its exact baseline state and re-run the same prompt
+- **Per-step attribution** — file writes are detected after each tool-using step and logged to `state_changelog.jsonl`
+- **Session diffs** — unified patches showing what each session changed, saved as `session_diff.patch`
+
+The working directory does not need to be a git repo. The shadow git works with any directory.
+
 ### Automatic behaviors
 
-- **MEMORY.md is always tracked.** If your config doesn't include it in `tracked_files`, the harness adds it automatically with seed content `# Notes\n`. You can override the seed content by including it explicitly.
-- **Tracked file paths are injected into the system prompt.** The harness appends the absolute paths of all tracked files to the system prompt so the agent knows exactly where to read/write. This prevents the agent from guessing wrong paths.
-- **The working directory is the repo.** The agent's cwd is set to the resolved `repo_path`.
+- **Memory file is auto-seeded.** The harness creates `MEMORY.md` (or whatever `memory_file` is set to) with the `memory_seed` content if it doesn't already exist.
+- **Working directory path is injected into the system prompt.** The harness appends the absolute path and memory file location to the system prompt so the agent knows where to read/write.
+- **The agent's cwd is the working directory.** Set to the resolved `work_dir`.
 
 ### Session modes
 
-| Mode | Behavior |
-|------|----------|
-| `isolated` | Each session starts fresh with no memory of previous sessions. The agent only knows what's written to tracked files. |
-| `chained` | Each session resumes from the previous session's conversation. The agent has full context of all prior interactions. |
-| `forked` | Sessions 2+ fork from session 1. Each sees session 1's context but not each other's. Useful for branching experiments. |
+| Mode | Behavior | Shadow git action |
+|------|----------|-------------------|
+| `isolated` | Each session starts fresh. The agent only knows what's in the memory file. | Reset to baseline before each session |
+| `chained` | Each session resumes from the previous session's conversation. Full context preserved. | Changes accumulate (no reset) |
+| `forked` | Sessions 2+ fork from session 1. Each sees session 1's context but not each other's. | Reset to session 1's end state |
 
 ### Flexible forking with `fork_from`
 
@@ -205,15 +225,16 @@ Subagent messages are filtered from the parent trajectory to keep it clean. The 
 | `provider` | no | `openrouter` | API provider: `openrouter`, `anthropic`, `bedrock`, `vertex` |
 | `base_url` | no | — | Custom API base URL (overrides provider default) |
 | `hypothesis` | no | — | One-sentence hypothesis this experiment tests. Shown in the web UI and saved to `run_meta.json`. |
-| `repo_path` | yes | — | Path to the target codebase |
-| `repo_name` | no | — | Human-readable name for the repo |
+| `work_dir` | yes | — | Working directory the agent operates in (any directory, not just repos) |
+| `repo_name` | no | — | Human-readable name for the working directory |
 | `sessions` | yes | — | List of `SessionConfig` objects |
 | `session_mode` | no | `isolated` | `isolated`, `chained`, or `forked` |
 | `system_prompt` | no | — | System prompt for all sessions |
 | `allowed_tools` | no | Read, Grep, Glob, Bash, Write, Edit | Tools the agent can use |
 | `max_turns` | no | `50` | Max agent turns per session |
 | `permission_mode` | no | `acceptEdits` | `acceptEdits` or `bypassPermissions` |
-| `tracked_files` | no | MEMORY.md auto-added | Files to snapshot/diff across sessions. MEMORY.md is always tracked. |
+| `memory_file` | no | `MEMORY.md` | File to auto-seed in working directory |
+| `memory_seed` | no | `# Notes\n` | Initial content for the memory file |
 | `max_budget_usd` | no | — | Per-session spend cap |
 | `load_project_settings` | no | `false` | Load repo's CLAUDE.md and .claude/settings.json |
 | `agents` | no | `[]` | Subagent definitions (see [Subagents](#subagents)) |
@@ -240,10 +261,9 @@ harness run <config.yaml>                Run an experiment
 harness list [--json]                    List completed runs
 harness inspect <run_dir> [--json]       Show run details
 harness resample <run_dir> --session N --request N --count N           Resample an API turn
+harness resample-edit <run_dir> --session N --request N --dump/--input Edit & resample
 harness resample-session <run_dir> --session N --count N               Re-run a session N times
 ```
-
-All commands support `--json` for machine-readable output.
 
 ### `harness run`
 
@@ -253,7 +273,8 @@ harness run examples/isolated.yaml \
   --tag baseline \
   --session-mode chained \
   --run-name my-run-01 \
-  --runs-dir ./output
+  --runs-dir ./output \
+  --no-capture                          # disable API capture (disables resampling)
 ```
 
 ### `harness inspect`
@@ -280,10 +301,42 @@ File changes:
 Replay a specific API turn N times to study output variance:
 
 ```bash
+# Discover available requests
+harness resample runs/my-run --session 1 --list-requests
+
+# Resample request 5 ten times
 harness resample runs/my-run --session 1 --request 5 --count 10
+
+# Resample from a replicate session
+harness resample runs/my-run --session 2 --replicate 3 --request 5 --count 5
 ```
 
 Resample results are saved to `session_NN/resamples/request_NNN/` and can be viewed in the web UI.
+
+### `harness resample-edit`
+
+Edit a captured API request and resample with the modified version — the CLI equivalent of the web UI's "Edit & Resample". Designed for scriptable intervention testing.
+
+```bash
+# Step 1: Dump the request for editing
+harness resample-edit runs/my-run --session 1 --request 5 --dump > edit.json
+
+# Step 2: Edit the JSON (thinking, text, tool results, system prompt...)
+# Step 3: Resample with the modified request
+harness resample-edit runs/my-run --session 1 --request 5 \
+  --input edit.json --label "removed hedging" --count 5
+```
+
+Pipe through `jq` for programmatic edits:
+
+```bash
+harness resample-edit runs/my-run --session 1 --request 5 --dump \
+  | jq '.messages[-1].content[0].thinking = "Be more direct."' \
+  | harness resample-edit runs/my-run --session 1 --request 5 \
+      --input - --label "direct thinking" --count 10
+```
+
+Variants are saved alongside vanilla resamples and appear in the web UI.
 
 ### `harness resample-session`
 
@@ -307,12 +360,18 @@ npm run dev
 
 Open `http://localhost:5173`. The UI reads from the `runs/` directory and provides:
 
-- **Run overview** — stats, session list, hypothesis display
+- **Run list** — searchable/filterable list of all runs with model, cost, session count
+- **Run overview** — metrics, session list with fork relationships, hypothesis display
 - **Trajectory viewer** — full chat view with thinking blocks, tool calls, and observations
-- **Memory diff** — per-session diffs of tracked files
-- **API captures** — raw request/response viewer with token usage
-- **Resamples** — compare N resample outputs for a given API turn, with intervention testing (edit inputs and resample)
-- **Analysis** — rendered markdown from `analysis.md` (generated by the `/experiment` skill)
+- **Memory diff** — before/after diffs of the memory file per session
+- **API captures** — request/response viewer with token usage, system prompts, tool definitions, compaction events
+- **Subagent viewer** — separate trajectory view for each subagent, with task prompt and return value
+- **Resamples** — compare N resample outputs for a given API turn
+- **Edit & Resample** — interactive message editor for intervention testing: edit thinking, text, tool results, or system prompts in the conversation, then resample with the modified input to study how changes affect behavior
+- **Changelog** — per-step file write log across all sessions with expandable diffs
+- **Config viewer** — frozen YAML config from the run
+- **Analysis** — rendered markdown from `analysis.md`
+- **Dark mode** — toggle between light and dark themes
 
 The UI expects `RUNS_DIR=../runs` (configured in `ui/.env`).
 
@@ -324,26 +383,30 @@ Each run produces a directory under `runs/`:
 runs/<run_name>/
 ├── config.yaml                 # frozen copy of the run config
 ├── run_meta.json               # run-level metadata and aggregates
-├── analysis.md                 # experiment analysis (generated by /experiment skill)
-├── state_init/                 # tracked files before any sessions
-├── state_final/                # tracked files after all sessions
+├── full_diff.patch             # unified diff of all changes (baseline → final)
 ├── state_changelog.jsonl       # per-step write log across all sessions
+├── analysis.md                 # experiment analysis (if created)
+├── .shadow_git/                # shadow git repo (invisible change tracker)
+│
 ├── session_01/
 │   ├── trajectory.json         # ATIF v1.6 trajectory (parent)
+│   ├── session_diff.patch      # unified diff of this session's changes
 │   ├── subagent_<name>_<id>.json  # subagent ATIF trajectory (if any)
-│   ├── api_captures.jsonl      # raw API request log (if capture enabled)
+│   ├── api_captures.jsonl      # API request/response metadata (if capture enabled)
 │   ├── raw_dumps/              # full API request/response JSON (if capture enabled)
-│   ├── resamples/              # resample outputs (created by UI or CLI)
-│   │   ├── request_005/        # vanilla resamples for request 5
-│   │   │   ├── sample_01.json
-│   │   │   └── sample_02.json
-│   │   └── request_005_v01/    # intervention variant
-│   │       ├── variant.json    # edit metadata (label, find/replace pairs)
-│   │       ├── request.json    # modified request body
-│   │       └── sample_01.json
-│   ├── state_before/           # tracked files before this session
-│   ├── state_after/            # tracked files after this session
-│   └── state_diff.patch        # unified diff of changes
+│   │   ├── request_NNN.json
+│   │   ├── request_NNN_headers.json
+│   │   ├── response_NNN.txt
+│   │   └── response_NNN_headers.json
+│   └── resamples/              # resample outputs (created by UI or CLI)
+│       ├── request_005/        # vanilla resamples for request 5
+│       │   ├── sample_01.json
+│       │   └── sample_02.json
+│       └── request_005_v01/    # intervention variant
+│           ├── variant.json    # edit metadata (label, find/replace pairs)
+│           ├── request.json    # modified request body
+│           └── sample_01.json
+│
 ├── session_02/                 # session 2 (count=1)
 │   └── ...
 ├── session_03_r01/             # session 3, replicate 1 (count=3)
@@ -378,7 +441,7 @@ Each session produces a `trajectory.json` in [ATIF v1.6](https://harborframework
 
 ### API request capture
 
-When `capture_api_requests: true` is set (or `--capture-requests` CLI flag), the harness runs a local reverse proxy between the SDK and the API. This captures data not available in the SDK message stream:
+When `capture_api_requests: true` is set (or `--no-capture` is not passed), the harness runs a local reverse proxy between the SDK and the API. This captures data not available in the SDK message stream:
 
 - **System prompt** — the SDK's system prompt (a minimal agent prompt plus your `system_prompt` config)
 - **Tool definitions** — JSON schemas for each tool (Read, Write, Bash, etc.)
@@ -386,18 +449,23 @@ When `capture_api_requests: true` is set (or `--capture-requests` CLI flag), the
 - **Per-request token usage** — input/output tokens, cache creation/read breakdown
 - **Compaction detection** — when message count drops between requests, captures the post-compaction messages
 - **Sampling parameters** — model, temperature, max_tokens
+- **Agent context** — classifies each request as `main`, `subagent`, or `sdk_internal`
 
 The proxy logs to `api_captures.jsonl` in each session directory. System prompt and tools are logged in full on the first request and on change; otherwise only a hash is recorded to keep file sizes small.
+
+Raw request/response bodies are saved to `raw_dumps/` for resampling and intervention testing.
 
 ## Architecture
 
 ```
 src/harness/
 ├── config.py            # Pydantic config models, YAML loading
+├── shadow_git.py        # Shadow git: invisible change tracking via GIT_DIR/GIT_WORK_TREE
+├── state.py             # Per-step write detection via shadow git index
 ├── atif_adapter.py      # Claude SDK Message -> ATIF Step mapping
-├── state.py             # File snapshots, diffs, write tracking
 ├── runner.py            # Single session execution
-├── experiment.py        # Multi-session orchestration (fork_from, replicates)
+├── experiment.py        # Multi-session orchestration (fork_from, replicates, shadow git lifecycle)
+├── proxy.py             # Reverse proxy for raw API request/response capture
 ├── resample.py          # Single-turn API resampling
 ├── resample_session.py  # Full session resampling (resample-session CLI)
 └── cli.py               # Typer CLI

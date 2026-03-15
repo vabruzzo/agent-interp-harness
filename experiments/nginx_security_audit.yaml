@@ -1,7 +1,7 @@
 model: "claude-sonnet-4-20250514"
 provider: anthropic
 hypothesis: "An agent can build cumulative security audit knowledge through MEMORY.md across isolated sessions"
-repo_path: "./repos/nginx"
+work_dir: "./repos/nginx"
 repo_name: "nginx"
 session_mode: isolated
 tags: ["nginx", "security-audit", "memory-study"]
@@ -18,9 +18,7 @@ max_turns: 30
 permission_mode: bypassPermissions
 max_budget_usd: 2.00
 
-tracked_files:
-  - path: "MEMORY.md"
-    seed_content: "# Nginx Security Audit Notes\n"
+memory_seed: "# Nginx Security Audit Notes\n"
 
 sessions:
   - session_index: 1

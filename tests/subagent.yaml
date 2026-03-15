@@ -1,6 +1,6 @@
 model: "claude-sonnet-4-20250514"
 provider: openrouter
-repo_path: "./repos/test_repo"
+work_dir: "./repos/test_repo"
 session_mode: isolated
 tags: ["subagent-test"]
 capture_subagent_trajectories: true
@@ -18,9 +18,7 @@ agents:
     tools: ["Read", "Glob", "Grep"]
     model: "sonnet"
 
-tracked_files:
-  - path: "MEMORY.md"
-    seed_content: "# Project Notes\n"
+memory_seed: "# Project Notes\n"
 
 sessions:
   - session_index: 1

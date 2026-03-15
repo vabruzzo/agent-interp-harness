@@ -4,12 +4,16 @@ Commands:
     harness run <config.yaml> [--model MODEL] [--tag TAG] [--session-mode MODE]
     harness list [--runs-dir DIR]
     harness inspect <run_dir>
+    harness resample <run_dir> --session N --request N --count N
+    harness resample-edit <run_dir> --session N --request N --dump / --input FILE
+    harness resample-session <run_dir> --session N --count N
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import sys
 from pathlib import Path
 from typing import Annotated, Optional
 
@@ -207,9 +211,19 @@ def resample(
     request: Annotated[int, typer.Option(help="Request index to resample")] = 1,
     count: Annotated[int, typer.Option(help="Number of resamples")] = 5,
     model: Annotated[Optional[str], typer.Option(help="Override model (default: use original)")] = None,
+    replicate: Annotated[Optional[int], typer.Option(help="Replicate number (for session_NN_rNN dirs)")] = None,
+    list_requests: Annotated[bool, typer.Option("--list-requests", help="List available requests and exit")] = False,
 ) -> None:
-    """Resample a specific API turn to get N fresh responses (no tool execution)."""
-    from harness.resample import run_resample
+    """Resample a specific API turn to get N fresh responses (no tool execution).
+
+    Use --list-requests to discover available request indices before resampling.
+    Use --replicate to target replicate sessions (e.g. session_02_r01).
+    """
+    from harness.resample import list_requests as _list_requests, run_resample
+
+    if list_requests:
+        _list_requests(run_dir, session, replicate)
+        raise typer.Exit()
 
     asyncio.run(run_resample(
         run_dir=run_dir,
@@ -217,6 +231,76 @@ def resample(
         request_index=request,
         count=count,
         model_override=model,
+        replicate=replicate,
+    ))
+
+
+@app.command(name="resample-edit")
+def resample_edit(
+    run_dir: Annotated[Path, typer.Argument(help="Path to run directory")],
+    session: Annotated[int, typer.Option(help="Session index")] = 1,
+    request: Annotated[int, typer.Option(help="Request index")] = 1,
+    dump: Annotated[bool, typer.Option("--dump", help="Dump the request JSON to stdout for editing")] = False,
+    input_file: Annotated[Optional[Path], typer.Option("--input", help="Path to edited request JSON")] = None,
+    label: Annotated[str, typer.Option(help="Label for this variant")] = "cli-edit",
+    count: Annotated[int, typer.Option(help="Number of resamples")] = 5,
+    model: Annotated[Optional[str], typer.Option(help="Override model")] = None,
+    replicate: Annotated[Optional[int], typer.Option(help="Replicate number")] = None,
+) -> None:
+    """Edit & resample: modify a captured request and resample with the edited version.
+
+    Two-step workflow:
+
+      1. Dump the request for editing:
+         harness resample-edit runs/my-run --session 1 --request 5 --dump > edit.json
+
+      2. Edit the JSON, then resample with the modified request:
+         harness resample-edit runs/my-run --session 1 --request 5 \\
+           --input edit.json --label "removed hedging" --count 5
+
+    Or pipe from stdin:
+         cat edit.json | harness resample-edit runs/my-run --session 1 --request 5 \\
+           --input - --label "piped edit" --count 5
+
+    The variant is saved alongside vanilla resamples and is visible in the web UI.
+    """
+    from harness.resample import dump_request, run_variant_resample
+
+    if dump:
+        request_data = dump_request(run_dir, session, request, replicate)
+        json.dump(request_data, sys.stdout, indent=2)
+        sys.stdout.write("\n")
+        raise typer.Exit()
+
+    if input_file is None:
+        typer.echo(
+            "Error: Either --dump or --input is required.\n\n"
+            "Usage:\n"
+            "  Dump:   harness resample-edit <run> --session N --request N --dump > edit.json\n"
+            "  Run:    harness resample-edit <run> --session N --request N --input edit.json --label 'my edit'",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    # Load edited request from file or stdin
+    if str(input_file) == "-":
+        edited_request = json.load(sys.stdin)
+    else:
+        if not input_file.exists():
+            typer.echo(f"Error: Input file not found: {input_file}", err=True)
+            raise typer.Exit(1)
+        with open(input_file) as f:
+            edited_request = json.load(f)
+
+    asyncio.run(run_variant_resample(
+        run_dir=run_dir,
+        session_index=session,
+        request_index=request,
+        edited_request=edited_request,
+        label=label,
+        count=count,
+        model_override=model,
+        replicate=replicate,
     ))
 
 

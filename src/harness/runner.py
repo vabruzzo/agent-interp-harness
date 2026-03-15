@@ -66,33 +66,27 @@ async def run_session(
     started_at = datetime.now(timezone.utc).isoformat()
     session_dir.mkdir(parents=True, exist_ok=True)
 
-    # Snapshot state before session
-    state_manager.snapshot(session_dir / "state_before")
-
     # Resolve per-session overrides
     system_prompt = session_config.system_prompt or run_config.system_prompt
     max_turns = session_config.max_turns or run_config.max_turns
 
-    # Inject tracked file paths so the agent knows where they are
-    cwd = str(Path(run_config.repo_path).resolve())
-    if run_config.tracked_files:
-        paths_note = "\n".join(
-            f"  - {Path(cwd) / tf.path}" for tf in run_config.tracked_files
-        )
-        file_hint = (
-            f"\n\nYour working directory is {cwd}\n"
-            f"Tracked files (read these first, write your notes here):\n{paths_note}\n"
-            f"IMPORTANT: Always use these exact absolute paths when reading or writing tracked files."
-        )
-        if system_prompt:
-            system_prompt = system_prompt.rstrip() + file_hint
-        else:
-            system_prompt = file_hint.lstrip()
+    # Inject working directory and memory file hint
+    cwd = str(Path(run_config.work_dir).resolve())
+    memory_path = Path(cwd) / run_config.memory_file
+    file_hint = (
+        f"\n\nYour working directory is {cwd}\n"
+        f"Use {memory_path} to keep notes across sessions.\n"
+        f"IMPORTANT: Always use absolute paths when reading or writing files."
+    )
+    if system_prompt:
+        system_prompt = system_prompt.rstrip() + file_hint
+    else:
+        system_prompt = file_hint.lstrip()
 
     # Build adapter
     capture_subagents = bool(run_config.agents) and run_config.capture_subagent_trajectories
     adapter = ATIFAdapter(
-        agent_name="agent-interp-harness",
+        agent_name="agentlens",
         agent_version="0.1.0",
         model_name=run_config.model,
         session_id=f"session_{session_config.session_index:02d}",
@@ -188,7 +182,7 @@ async def run_session(
         if proxy:
             await proxy.stop()
 
-    # Post-processing: trajectory, state snapshots, etc.
+    # Post-processing: trajectory, etc.
     # Wrapped so failures here don't kill the entire experiment.
     traj_path: Path | None = None
     step_count = 0
@@ -229,19 +223,6 @@ async def run_session(
         traj_path = session_dir / "trajectory.json"
         with open(traj_path, "w") as f:
             json.dump(trajectory.to_json_dict(), f, indent=2)
-
-        # Snapshot state after session
-        state_manager.snapshot(session_dir / "state_after")
-
-        # Compute session diff
-        state_manager.diff_session(
-            session_dir / "state_before",
-            session_dir / "state_after",
-            session_dir / "state_diff.patch",
-        )
-
-        # Refresh cache for next session
-        state_manager.refresh_cache()
 
     except Exception as e:
         logger.exception(

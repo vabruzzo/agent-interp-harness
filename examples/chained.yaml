@@ -1,15 +1,13 @@
 model: "claude-sonnet-4-5"
 provider: anthropic
-repo_path: "./repos/test_repo"
+work_dir: "./repos/test_repo"
 session_mode: chained
 tags: ["test", "chained", "full-context"]
 
 system_prompt: |
   You are exploring a Python codebase across multiple sessions.
 
-tracked_files:
-  - path: "MEMORY.md"
-    seed_content: "# Project Notes\n"
+memory_seed: "# Project Notes\n"
 
 sessions:
   - session_index: 1
