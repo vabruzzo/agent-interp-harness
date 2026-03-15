@@ -101,7 +101,7 @@ allowed_tools:                          # Claude Code tools the agent can use
   - Edit
 
 max_turns: 30                           # max agent turns per session
-permission_mode: acceptEdits            # acceptEdits | bypassPermissions
+permission_mode: bypassPermissions      # acceptEdits | bypassPermissions
 max_budget_usd: 1.00                    # optional spend cap per session
 load_project_settings: false            # whether to load the repo's CLAUDE.md
 
@@ -232,7 +232,7 @@ Subagent messages are filtered from the parent trajectory to keep it clean. The 
 | `system_prompt` | no | — | System prompt for all sessions |
 | `allowed_tools` | no | Read, Grep, Glob, Bash, Write, Edit | Tools the agent can use |
 | `max_turns` | no | `50` | Max agent turns per session |
-| `permission_mode` | no | `acceptEdits` | `acceptEdits` or `bypassPermissions` |
+| `permission_mode` | no | `bypassPermissions` | `acceptEdits` or `bypassPermissions` |
 | `memory_file` | no | `MEMORY.md` | File to auto-seed in working directory |
 | `memory_seed` | no | `# Notes\n` | Initial content for the memory file |
 | `max_budget_usd` | no | — | Per-session spend cap |

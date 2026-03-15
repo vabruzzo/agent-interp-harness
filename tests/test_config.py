@@ -91,7 +91,7 @@ class TestRunConfigValidation:
         assert rc.provider == "openrouter"
         assert rc.tags == []
         assert rc.max_turns == 50
-        assert rc.permission_mode == "acceptEdits"
+        assert rc.permission_mode == "bypassPermissions"
         assert rc.capture_api_requests is True
 
     def test_duplicate_session_indices(self):

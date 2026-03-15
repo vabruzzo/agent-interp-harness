@@ -59,7 +59,7 @@ sessions:
 | `system_prompt` | no | — | System prompt for all sessions |
 | `allowed_tools` | no | Read, Grep, Glob, Bash, Write, Edit | Tools the agent can use |
 | `max_turns` | no | `50` | Max agent turns per session |
-| `permission_mode` | no | `acceptEdits` | `acceptEdits` or `bypassPermissions` |
+| `permission_mode` | no | `bypassPermissions` | `acceptEdits` or `bypassPermissions` |
 | `memory_file` | no | `MEMORY.md` | File to auto-seed in working directory |
 | `memory_seed` | no | `# Notes\n` | Initial content for the memory file |
 | `max_budget_usd` | no | — | Per-session spend cap |

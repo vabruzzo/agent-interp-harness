@@ -16,7 +16,7 @@ allowed_tools:
   - Edit
 
 max_turns: 30
-permission_mode: acceptEdits
+permission_mode: bypassPermissions
 load_project_settings: false
 
 memory_seed: "# Project Notes\n"

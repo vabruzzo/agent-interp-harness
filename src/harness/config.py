@@ -75,7 +75,7 @@ class RunConfig(BaseModel):
         default=["Read", "Grep", "Glob", "Bash", "Write", "Edit"]
     )
     max_turns: int = 50
-    permission_mode: str = "acceptEdits"
+    permission_mode: str = "bypassPermissions"
 
     # memory file (auto-seeded in working directory)
     memory_file: str = "MEMORY.md"

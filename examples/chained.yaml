@@ -7,6 +7,8 @@ tags: ["test", "chained", "full-context"]
 system_prompt: |
   You are exploring a Python codebase across multiple sessions.
 
+permission_mode: bypassPermissions
+
 memory_seed: "# Project Notes\n"
 
 sessions:

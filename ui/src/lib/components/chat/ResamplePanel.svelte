@@ -82,9 +82,23 @@
 		return sample.content ?? [];
 	}
 
+	const TOOL_INPUT_LIMIT = 500;
+
 	function formatToolInput(input: Record<string, unknown>): string {
-		const str = JSON.stringify(input, null, 2);
-		return str.length > 500 ? str.slice(0, 500) + "\n..." : str;
+		return JSON.stringify(input, null, 2);
+	}
+
+	function isToolInputLong(input: Record<string, unknown>): boolean {
+		return JSON.stringify(input, null, 2).length > TOOL_INPUT_LIMIT;
+	}
+
+	let expandedToolInputs = $state<Set<string>>(new Set());
+
+	function toggleToolInput(id: string) {
+		const next = new Set(expandedToolInputs);
+		if (next.has(id)) next.delete(id);
+		else next.add(id);
+		expandedToolInputs = next;
 	}
 </script>
 
@@ -168,7 +182,7 @@
 					Error: {activeSample.error}
 				</div>
 			{:else}
-				{#each getBlocks(activeSample) as block}
+				{#each getBlocks(activeSample) as block, blockIdx}
 					{#if block.type === "thinking" && block.thinking}
 						<ThinkingBlock content={block.thinking} />
 					{:else if block.type === "text" && block.text}
@@ -180,13 +194,25 @@
 							{@html html}
 						</div>
 					{:else if block.type === "tool_use"}
+						{@const toolId = `${activeSource}-${activeTab}-${blockIdx}`}
+						{@const full = block.input ? formatToolInput(block.input) : ""}
+						{@const isLong = block.input ? isToolInputLong(block.input) : false}
+						{@const isExpanded = expandedToolInputs.has(toolId)}
 						<div class="rounded-md border border-border bg-muted/30 px-3 py-2">
 							<div class="text-[11px] text-muted-foreground font-medium mb-1">
 								Tool: <span class="font-mono">{block.name}</span>
 							</div>
 							{#if block.input}
 								<pre
-									class="text-[10px] text-muted-foreground font-mono whitespace-pre-wrap">{formatToolInput(block.input)}</pre>
+									class="text-[10px] text-muted-foreground font-mono whitespace-pre-wrap">{isLong && !isExpanded ? full.slice(0, TOOL_INPUT_LIMIT) + "\n..." : full}</pre>
+								{#if isLong}
+									<button
+										onclick={() => toggleToolInput(toolId)}
+										class="text-[10px] text-primary hover:underline mt-1"
+									>
+										{isExpanded ? "Show less" : "Show more"}
+									</button>
+								{/if}
 							{/if}
 						</div>
 					{/if}
