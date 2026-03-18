@@ -49,11 +49,14 @@
 				</thead>
 				<tbody>
 					{#each filtered as run}
-						<tr class="border-b border-border last:border-b-0 hover:bg-muted/30 transition-colors">
+						<tr
+							class="border-b border-border last:border-b-0 hover:bg-muted/30 transition-colors cursor-pointer"
+							onclick={() => window.location.href = `/runs/${run.run_name}`}
+						>
 							<td style="padding: 1rem 1.25rem;">
-								<a href="/runs/{run.run_name}" class="font-medium text-sm hover:underline underline-offset-4">
+								<span class="font-medium text-sm">
 									{run.run_name}
-								</a>
+								</span>
 								{#if run.errors.length > 0}
 									<span class="inline-block rounded-full bg-destructive" style="margin-left: 0.375rem; width: 0.375rem; height: 0.375rem;"></span>
 								{/if}

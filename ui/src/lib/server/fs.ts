@@ -34,11 +34,15 @@ export async function fileExists(path: string): Promise<boolean> {
 }
 
 export async function listDirectories(dir: string): Promise<string[]> {
-	const entries = await readdir(dir, { withFileTypes: true });
-	return entries
-		.filter((e) => e.isDirectory())
-		.map((e) => e.name)
-		.sort();
+	try {
+		const entries = await readdir(dir, { withFileTypes: true });
+		return entries
+			.filter((e) => e.isDirectory())
+			.map((e) => e.name)
+			.sort();
+	} catch {
+		return [];
+	}
 }
 
 export function runPath(runName: string): string {

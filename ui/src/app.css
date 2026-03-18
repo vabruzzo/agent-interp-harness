@@ -23,6 +23,14 @@
 	--ring: oklch(0.708 0.165 254);
 	--sidebar: oklch(0.96 0.004 264);
 	--radius: 0.5rem;
+
+	/* Terminal-style accent colors */
+	--term-red: oklch(0.577 0.245 27);
+	--term-green: oklch(0.52 0.17 145);
+	--term-amber: oklch(0.65 0.17 75);
+	--term-blue: oklch(0.55 0.15 255);
+	--term-cyan: oklch(0.58 0.12 210);
+	--term-dim: oklch(0.55 0.01 264);
 }
 
 .dark {
@@ -46,6 +54,13 @@
 	--input: oklch(0.32 0.012 270);
 	--ring: oklch(0.551 0.178 254);
 	--sidebar: oklch(0.14 0.005 270);
+
+	--term-red: oklch(0.7 0.2 25);
+	--term-green: oklch(0.7 0.17 145);
+	--term-amber: oklch(0.78 0.15 75);
+	--term-blue: oklch(0.7 0.14 255);
+	--term-cyan: oklch(0.75 0.1 210);
+	--term-dim: oklch(0.5 0.01 270);
 }
 
 @theme inline {
@@ -89,6 +104,43 @@
 	button:disabled {
 		cursor: not-allowed;
 	}
+	/* Metadata pills */
+	.meta-pill {
+		font-size: 12px;
+		padding: 0.125rem 0.5rem;
+		border: 1px solid var(--border);
+		border-radius: 9999px;
+		color: var(--muted-foreground);
+	}
+
+	/* Tab navigation */
+	.term-tab {
+		font-size: 12px;
+		color: var(--muted-foreground);
+		text-decoration: none;
+		padding: 0.125rem 0.25rem;
+		border-radius: 2px;
+		transition: color 0.15s, background-color 0.15s;
+	}
+	.term-tab:hover {
+		color: var(--foreground);
+		background-color: var(--muted);
+	}
+	.term-tab.active {
+		color: var(--foreground);
+		font-weight: 500;
+	}
+	.session-pill-inactive {
+		text-decoration: none;
+		border-radius: 2px;
+		transition: color 0.15s, background-color 0.15s, border-color 0.15s;
+	}
+	.session-pill-inactive:hover {
+		color: var(--foreground) !important;
+		background-color: var(--muted);
+		border-color: var(--muted-foreground) !important;
+	}
+
 	/* Offset anchor scroll targets so they clear the sticky header */
 	[id^="step-"] {
 		scroll-margin-top: 4.5rem;
