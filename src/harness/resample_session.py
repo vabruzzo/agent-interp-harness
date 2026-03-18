@@ -1,21 +1,23 @@
 """Re-run a forked session N times to study behavioral variance.
 
 Reads the run's config and metadata, finds the fork point, and runs N new
-replicates using the same session config. Results are appended as new
+replicates using the same session config. Each replicate runs in an isolated
+git worktree, enabling parallel execution. Results are appended as new
 session directories (session_NN_rNN) and run_meta.json is updated.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
 import typer
-import yaml
 
-from harness.config import load_config
+from harness.config import load_config, SessionConfig, RunConfig
 from harness.runner import SessionResult, run_session
 from harness.shadow_git import ShadowGit
 from harness.state import StateManager
@@ -39,12 +41,78 @@ def _find_existing_replicates(run_dir: Path, session_index: int) -> list[int]:
     return sorted(nums)
 
 
+async def _run_single_replicate(
+    rep: int,
+    worktree_dir: Path,
+    run_dir: Path,
+    session_config: SessionConfig,
+    config: RunConfig,
+    session_index: int,
+    resume_id: str | None,
+    fork_from: int | None,
+    count: int,
+) -> tuple[Path, SessionResult]:
+    """Run one session replicate in an isolated worktree.
+
+    Returns (session_dir, result).
+    """
+    session_dir = run_dir / f"session_{session_index:02d}_r{rep:02d}"
+
+    # Each replicate gets its own shadow git + state manager in the worktree
+    replay_shadow_git = ShadowGit(
+        work_dir=worktree_dir,
+        git_dir=session_dir / ".shadow_git_tmp",
+    )
+    replay_shadow_git.init()
+    replay_shadow_git.commit_baseline()
+
+    state = StateManager(work_dir=worktree_dir, shadow_git=replay_shadow_git)
+
+    try:
+        result = await run_session(
+            session_config=session_config,
+            run_config=config,
+            session_dir=session_dir,
+            state_manager=state,
+            resume_session_id=resume_id,
+            fork=bool(resume_id),
+            cwd_override=str(worktree_dir),
+        )
+    except Exception as e:
+        logger.exception("Replicate %d crashed", rep)
+        result = SessionResult(
+            session_index=session_index,
+            error=f"CRASHED: {e}",
+            started_at=datetime.now(timezone.utc).isoformat(),
+            finished_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+    # Save session diff
+    session_diff = replay_shadow_git.diff_from_ref("baseline")
+    (session_dir / "session_diff.patch").write_text(session_diff or "# No changes\n")
+
+    # Save changelog for this replicate
+    state.save_changelog(session_dir / "state_changelog.jsonl")
+
+    # Clean up temp shadow git (the run's main shadow git has the canonical history)
+    shutil.rmtree(session_dir / ".shadow_git_tmp", ignore_errors=True)
+
+    result.fork_from = fork_from
+    result.replicate = rep
+    result.replicate_count = count
+
+    return session_dir, result
+
+
 async def run_resample_session(
     run_dir: Path,
     session_index: int,
     count: int,
 ) -> list[Path]:
     """Run N new replicates of a session and update run_meta.json.
+
+    Each replicate runs in an isolated git worktree. When count > 1,
+    replicates execute in parallel.
 
     Returns list of new session directories created.
     """
@@ -81,7 +149,6 @@ async def run_resample_session(
     resume_id: str | None = None
 
     if fork_from is not None:
-        # Find session_id from the fork_from session
         for s in meta["sessions"]:
             if s["session_index"] == fork_from and s.get("session_id"):
                 resume_id = s["session_id"]
@@ -101,29 +168,22 @@ async def run_resample_session(
 
     # Find next replicate number
     existing = _find_existing_replicates(run_dir, session_index)
-    # Also check if there's a plain session directory (counts as replicate 0 in a sense)
     plain_dir = run_dir / f"session_{session_index:02d}"
     if plain_dir.exists() and not existing:
-        # There's an existing non-replicate run — start numbering from 2
         next_num = 2
     elif existing:
         next_num = max(existing) + 1
     else:
         next_num = 1
 
-    # Initialize shadow git (reuse existing from original run)
-    work_dir = Path(config.work_dir).resolve()
+    # Source shadow git for worktree creation
     shadow_git_dir = run_dir / ".shadow_git"
-    shadow_git = ShadowGit(work_dir=work_dir, git_dir=shadow_git_dir)
-
-    # If no shadow git from original run, create one fresh
     if not shadow_git_dir.exists():
-        shadow_git.init()
-        shadow_git.commit_baseline()
+        typer.echo(f"Error: No .shadow_git in {run_dir}. Cannot create worktrees.", err=True)
+        raise typer.Exit(1)
 
-    # Initialize state manager
-    state = StateManager(work_dir=work_dir, shadow_git=shadow_git)
-    state.seed_memory(config.memory_file, config.memory_seed)
+    work_dir = Path(config.work_dir).resolve()
+    source_shadow_git = ShadowGit(work_dir=work_dir, git_dir=shadow_git_dir)
 
     typer.echo(
         f"Resampling session {session_index} "
@@ -131,56 +191,65 @@ async def run_resample_session(
         f"{f', forked from session {fork_from}' if fork_from else ''})..."
     )
 
+    # Create worktrees for all replicates
+    worktree_base = run_dir / ".worktrees" / f"resample_s{session_index}"
+    worktree_base.mkdir(parents=True, exist_ok=True)
+    worktree_paths: list[Path] = []
+
+    try:
+        for i in range(count):
+            rep = next_num + i
+            wt = worktree_base / f"rep_{rep:02d}"
+            source_shadow_git.add_worktree(wt, "baseline")
+            worktree_paths.append(wt)
+
+        # Launch all replicates in parallel
+        tasks = [
+            _run_single_replicate(
+                rep=next_num + i,
+                worktree_dir=wt,
+                run_dir=run_dir,
+                session_config=session_config,
+                config=config,
+                session_index=session_index,
+                resume_id=resume_id,
+                fork_from=fork_from,
+                count=count,
+            )
+            for i, wt in enumerate(worktree_paths)
+        ]
+
+        gather_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    finally:
+        # Clean up all worktrees
+        for wt in worktree_paths:
+            try:
+                source_shadow_git.remove_worktree(wt)
+            except Exception:
+                logger.warning("Failed to remove worktree: %s", wt)
+        shutil.rmtree(worktree_base, ignore_errors=True)
+
+    # Process results
     new_dirs: list[Path] = []
     new_results: list[SessionResult] = []
 
-    for i in range(count):
+    for i, res in enumerate(gather_results):
         rep = next_num + i
-        session_dir = run_dir / f"session_{session_index:02d}_r{rep:02d}"
+        if isinstance(res, Exception):
+            logger.error("Replicate %d failed: %s", rep, res)
+            typer.echo(f"  Replicate {rep}... FAILED: {res}")
+        else:
+            session_dir, result = res
+            new_dirs.append(session_dir)
+            new_results.append(result)
 
-        # Reset working directory to baseline before each replicate
-        shadow_git.hard_reset_to("baseline")
-
-        typer.echo(f"  Replicate {rep}...", nl=False)
-
-        try:
-            result = await run_session(
-                session_config=session_config,
-                run_config=config,
-                session_dir=session_dir,
-                state_manager=state,
-                resume_session_id=resume_id,
-                fork=bool(resume_id),
+            status = "ERROR" if result.error else "done"
+            cost_str = f" ${result.total_cost_usd:.4f}" if result.total_cost_usd is not None else ""
+            typer.echo(
+                f"  Replicate {rep}... {status} ({result.step_count} steps, "
+                f"{result.tool_call_count} tool calls{cost_str})"
             )
-        except Exception as e:
-            logger.exception("Replicate %d crashed", rep)
-            result = SessionResult(
-                session_index=session_index,
-                error=f"CRASHED: {e}",
-                started_at=datetime.now(timezone.utc).isoformat(),
-                finished_at=datetime.now(timezone.utc).isoformat(),
-            )
-
-        # Commit and tag this replicate
-        shadow_git.end_session(session_index, replicate=rep)
-
-        # Save session diff
-        session_diff = shadow_git.diff_from_ref("baseline")
-        (session_dir / "session_diff.patch").write_text(session_diff or "# No changes\n")
-
-        result.fork_from = fork_from
-        result.replicate = rep
-        result.replicate_count = count  # of this batch
-
-        new_results.append(result)
-        new_dirs.append(session_dir)
-
-        status = "ERROR" if result.error else "done"
-        cost_str = f" ${result.total_cost_usd:.4f}" if result.total_cost_usd is not None else ""
-        typer.echo(
-            f" {status} ({result.step_count} steps, "
-            f"{result.tool_call_count} tool calls{cost_str})"
-        )
 
     # Update run_meta.json with new session entries
     for r in new_results:
@@ -208,5 +277,5 @@ async def run_resample_session(
     with open(meta_path, "w") as f:
         json.dump(meta, f, indent=2, default=str)
 
-    typer.echo(f"\n{count} replicates added. Updated {meta_path}")
+    typer.echo(f"\n{len(new_dirs)} replicates added. Updated {meta_path}")
     return new_dirs

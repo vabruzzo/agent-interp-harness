@@ -37,7 +37,7 @@ Cheapest / fastest                                    Most thorough
 |---|---|---|---|---|
 | **Tools execute** | No | No | Yes | Yes |
 | **Filesystem reset** | No | No | Yes (fork point) | Yes (git worktree) |
-| **Parallel** | No | No | No | Yes |
+| **Parallel** | Yes | Yes | Yes | Yes |
 | **Creates new run** | No | No | No (appends replicates) | Yes |
 | **Editable inputs** | No | Yes | No | Prompt only |
 | **Requires** | `capture_api_requests` | `capture_api_requests` | `fork_from` session | `transcript.jsonl` |
@@ -168,7 +168,7 @@ Re-run a full session N times from scratch. Unlike turn-level methods, this **ex
 harness resample-session runs/my-run --session 2 --count 5
 ```
 
-This finds the session's fork point, resets the working directory, and runs 5 new replicates. New directories are appended with auto-incrementing replicate numbers (`session_02_r01`, `session_02_r02`, ...), and `run_meta.json` is updated.
+Each replicate runs in its own git worktree, so all 5 execute in parallel. New directories are appended with auto-incrementing replicate numbers (`session_02_r01`, `session_02_r02`, ...), and `run_meta.json` is updated. The source working directory is never modified.
 
 ---
 

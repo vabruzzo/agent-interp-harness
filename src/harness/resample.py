@@ -12,6 +12,7 @@ Supports:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from datetime import datetime, timezone
@@ -293,31 +294,30 @@ async def run_resample(
         f"({count} samples, model={request_data.get('model')}, target={target_url})..."
     )
 
-    for i in range(count):
-        sample_num = next_num + i
-        typer.echo(f"  Sample {sample_num}/{next_num + count - 1}...", nl=False)
-
+    async def _do_sample(sample_num: int) -> None:
         try:
             response = await _call_api(target_url, headers, request_data)
             sample_path = resample_dir / f"sample_{sample_num:02d}.json"
             with open(sample_path, "w") as f:
                 json.dump(response, f, indent=2)
 
-            # Quick summary
             content = response.get("content", [])
             block_types = [b.get("type", "?") for b in content]
             usage = response.get("usage", {})
             out_tokens = usage.get("output_tokens", "?")
-            typer.echo(f" done ({out_tokens} tokens, blocks: {block_types})")
+            typer.echo(f"  Sample {sample_num}... done ({out_tokens} tokens, blocks: {block_types})")
 
         except httpx.HTTPStatusError as e:
-            typer.echo(f" error: {e.response.status_code} {e.response.text[:200]}")
+            typer.echo(f"  Sample {sample_num}... error: {e.response.status_code} {e.response.text[:200]}")
             error_path = resample_dir / f"sample_{sample_num:02d}_error.json"
             with open(error_path, "w") as f:
                 json.dump({"error": str(e), "status": e.response.status_code, "body": e.response.text}, f, indent=2)
 
         except Exception as e:
-            typer.echo(f" error: {e}")
+            typer.echo(f"  Sample {sample_num}... error: {e}")
+
+    tasks = [_do_sample(next_num + i) for i in range(count)]
+    await asyncio.gather(*tasks)
 
     typer.echo(f"\nResults saved to: {resample_dir}")
     return resample_dir
@@ -405,10 +405,7 @@ async def run_variant_resample(
         f"({count} samples, model={edited_request.get('model')}, target={target_url})..."
     )
 
-    for i in range(count):
-        sample_num = i + 1
-        typer.echo(f"  Sample {sample_num}/{count}...", nl=False)
-
+    async def _do_sample(sample_num: int) -> None:
         try:
             response = await _call_api(target_url, headers, edited_request)
             sample_path = variant_dir / f"sample_{sample_num:02d}.json"
@@ -419,16 +416,19 @@ async def run_variant_resample(
             block_types = [b.get("type", "?") for b in content]
             usage = response.get("usage", {})
             out_tokens = usage.get("output_tokens", "?")
-            typer.echo(f" done ({out_tokens} tokens, blocks: {block_types})")
+            typer.echo(f"  Sample {sample_num}... done ({out_tokens} tokens, blocks: {block_types})")
 
         except httpx.HTTPStatusError as e:
-            typer.echo(f" error: {e.response.status_code} {e.response.text[:200]}")
+            typer.echo(f"  Sample {sample_num}... error: {e.response.status_code} {e.response.text[:200]}")
             error_path = variant_dir / f"sample_{sample_num:02d}_error.json"
             with open(error_path, "w") as f:
                 json.dump({"error": str(e), "status": e.response.status_code, "body": e.response.text}, f, indent=2)
 
         except Exception as e:
-            typer.echo(f" error: {e}")
+            typer.echo(f"  Sample {sample_num}... error: {e}")
+
+    tasks = [_do_sample(i + 1) for i in range(count)]
+    await asyncio.gather(*tasks)
 
     typer.echo(f"\nVariant saved to: {variant_dir}")
     return variant_dir
