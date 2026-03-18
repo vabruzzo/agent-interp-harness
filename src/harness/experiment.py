@@ -1,9 +1,9 @@
 """Multi-session experiment orchestrator.
 
 Runs sessions sequentially, passing session IDs forward based on session_mode:
-- isolated: reset to baseline before each session
-- chained: cumulative changes, no reset
-- forked: reset to fork point before each session
+- isolated: fresh conversation each session, working directory unchanged
+- chained: conversation resumes from previous session
+- forked: reset working directory to fork point before each session
 """
 
 from __future__ import annotations
@@ -63,6 +63,8 @@ async def run_experiment(config: RunConfig, output_base: Path | None = None) -> 
     results: list[SessionResult] = []
     # Track session_id by index for fork_from lookups
     session_ids: dict[int, str | None] = {}
+    # Track how many sessions have forked from each fork point (for reset logic)
+    fork_counts: dict[int | None, int] = {}
 
     for sc in sorted(config.sessions, key=lambda s: s.session_index):
         replicates = sc.count or 1
@@ -103,9 +105,24 @@ async def run_experiment(config: RunConfig, output_base: Path | None = None) -> 
                 resume_id = session_ids[1]
                 fork = True
 
-            # Prepare working directory for this session
+            # Determine if we need to reset the working directory.
+            # Only needed for forked sessions when a sibling has already run
+            # and modified the working directory since the fork point.
+            effective_fork_from = fork_from
+            if effective_fork_from is None and config.session_mode == SessionMode.FORKED:
+                effective_fork_from = 1  # default fork point
+            needs_reset = False
+            if fork or config.session_mode == SessionMode.FORKED:
+                fork_key = effective_fork_from
+                fork_counts[fork_key] = fork_counts.get(fork_key, 0) + 1
+                if fork_counts[fork_key] > 1 or rep > 1:
+                    needs_reset = True
+
             shadow_git.begin_session(
-                sc.session_index, config.session_mode, fork_from=fork_from
+                sc.session_index,
+                config.session_mode,
+                fork_from=effective_fork_from,
+                needs_reset=needs_reset,
             )
 
             # Log
@@ -186,6 +203,11 @@ async def run_experiment(config: RunConfig, output_base: Path | None = None) -> 
     meta = _build_run_meta(config, run_name, results, state)
     with open(run_dir / "run_meta.json", "w") as f:
         json.dump(meta, f, indent=2, default=str)
+
+    # Revert working directory if requested
+    if config.revert_work_dir:
+        shadow_git.hard_reset_to("baseline")
+        print("Reverted working directory to pre-run state.")
 
     print(f"\nRun complete: {run_dir}")
     return run_dir

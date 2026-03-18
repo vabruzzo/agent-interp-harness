@@ -6,13 +6,13 @@ The `session_mode` field controls how sessions relate to each other — both in 
 
 | Mode | Conversation | File state |
 |------|-------------|------------|
-| `isolated` | Each session starts fresh | Reset to baseline before each session |
+| `isolated` | Each session starts fresh | Changes accumulate (no reset) |
 | `chained` | Each session resumes from the previous | Changes accumulate (no reset) |
 | `forked` | Sessions 2+ fork from session 1 | Reset to session 1's end state |
 
 ### Isolated
 
-Each session is independent. The agent starts with no conversation history and the working directory is reset to its baseline state. The only continuity is through the memory file.
+Each session starts with a fresh conversation — no chat history is carried over. The working directory is **not** reset; file changes from previous sessions persist. Continuity between sessions is through the working directory and the memory file.
 
 ```yaml
 session_mode: isolated
@@ -78,7 +78,7 @@ sessions:
 
 The [shadow git](../api/shadow-git.md) system handles file state for each mode:
 
-- **Isolated**: `git reset --hard baseline` before each session
+- **Isolated**: No reset — changes accumulate, only chat history is fresh
 - **Chained**: No reset — changes accumulate
 - **Forked**: `git reset --hard session_NN` to the fork point
 

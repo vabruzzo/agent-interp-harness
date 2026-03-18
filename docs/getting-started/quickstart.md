@@ -67,7 +67,8 @@ Run complete: runs/2026-03-15T10-30-00_claude-sonnet-4-20250514
 
 ## Next steps
 
-- [Configuration](../guide/configuration.md) — full config reference with all fields
 - [Session Modes](../guide/session-modes.md) — isolated, chained, and forked sessions
+- [Resampling & Replay](../guide/resampling.md) — study variance from API-level resampling to full turn-level replay
+- [Output Structure](../guide/output.md) — where trajectories, diffs, transcripts, and metadata are stored
+- [Configuration](../guide/configuration.md) — full config reference with all fields
 - [Subagents](../guide/subagents.md) — delegate work to specialized subagents
-- [Resampling](../guide/resampling.md) — study output variance and run interventions

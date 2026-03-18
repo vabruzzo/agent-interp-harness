@@ -93,6 +93,7 @@ class RunConfig(BaseModel):
 
     # settings
     load_project_settings: bool = False
+    revert_work_dir: bool = False
 
     @model_validator(mode="after")
     def _validate_sessions(self) -> "RunConfig":

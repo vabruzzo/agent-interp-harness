@@ -89,6 +89,8 @@ File changes:
 
 Resample a specific API turn N times (no tool execution).
 
+For concepts and method comparison, see [Resampling & Replay](guide/resampling.md).
+
 ```bash
 harness resample <run_dir> [OPTIONS]
 ```
@@ -104,17 +106,8 @@ harness resample <run_dir> [OPTIONS]
 
 ### Discovering requests
 
-Before resampling, use `--list-requests` to see what's available:
-
 ```bash
-$ harness resample runs/my-run --session 1 --list-requests
-
-Session 1: 12 captured requests
-
-    1  |  15 messages  |  claude-sonnet-4  |  Explore the project structure...
-    2  |  17 messages  |  claude-sonnet-4  |  [tool_result for toolu_01H...]
-    3  |  19 messages  |  claude-sonnet-4  |  [tool_result for toolu_01H...]
-   ...
+harness resample runs/my-run --session 1 --list-requests
 ```
 
 ### Resampling
@@ -127,11 +120,13 @@ harness resample runs/my-run --session 1 --request 5 --count 10
 harness resample runs/my-run --session 2 --replicate 3 --request 5 --count 5
 ```
 
-Results are saved to `session_NN/resamples/request_NNN/`.
+Results are saved to `session_NN/resamples/request_NNN/` (and `request_NNN_vNN/` for edited variants).
 
 ## `harness resample-edit`
 
-Edit a captured API request and resample with the modified version. This is the CLI equivalent of the web UI's "Edit & Resample" feature, designed for scriptable intervention testing.
+Edit a captured API request and resample with the modified version.
+
+For intervention strategy and output details, see [Resampling & Replay](guide/resampling.md#intervention-testing-edit-resample).
 
 ```bash
 harness resample-edit <run_dir> [OPTIONS]
@@ -165,10 +160,7 @@ harness resample-edit runs/my-run --session 1 --request 5 \
 
 ### Piping from stdin
 
-You can pipe edits for scriptable interventions:
-
 ```bash
-# Use jq to modify the request programmatically
 harness resample-edit runs/my-run --session 1 --request 5 --dump \
   | jq '.messages[-1].content[0].thinking = "I should be more direct."' \
   | harness resample-edit runs/my-run --session 1 --request 5 \
@@ -176,8 +168,6 @@ harness resample-edit runs/my-run --session 1 --request 5 --dump \
 ```
 
 ### Batch interventions
-
-Combine with shell loops for systematic intervention testing:
 
 ```bash
 for req in 3 5 7 9; do
@@ -188,25 +178,11 @@ for req in 3 5 7 9; do
 done
 ```
 
-### Output
-
-Variants are saved alongside vanilla resamples and are visible in the web UI:
-
-```
-session_01/resamples/
-├── request_005/           # vanilla resamples
-│   ├── sample_01.json
-│   └── sample_02.json
-└── request_005_v01/       # variant from resample-edit
-    ├── variant.json       # label + metadata
-    ├── request.json       # the edited request body
-    ├── sample_01.json
-    └── sample_05.json
-```
-
 ## `harness resample-session`
 
 Re-run a forked session N times to study behavioral variance.
+
+For behavioral semantics and output expectations, see [Resampling & Replay](guide/resampling.md#session-level-resampling).
 
 ```bash
 harness resample-session <run_dir> [OPTIONS]
@@ -224,3 +200,55 @@ harness resample-session runs/my-run --session 2 --count 5
 ```
 
 This finds the session's `fork_from` target, resolves the session ID, and runs N new replicates. New directories are appended with auto-incrementing replicate numbers, and `run_meta.json` is updated.
+
+## `harness replay`
+
+Replay a session from any API turn with full tool execution. Each replicate runs in an isolated git worktree, so multiple replicates execute in parallel. Each replay becomes a new independent run with complete provenance.
+
+For replay internals and data model details, see [Resampling & Replay](guide/resampling.md#turn-level-replay).
+
+```bash
+harness replay <run_dir> [OPTIONS]
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--session INT` | `1` | Session index to replay from |
+| `--turn INT` | — | Turn index to replay from (1-based, required unless `--list-turns`) |
+| `--count INT` | `1` | Number of replay replicates |
+| `--prompt TEXT` | — | Additional prompt after tool results |
+| `--list-turns` | — | List available turns and exit |
+| `--continue-sessions` | — | After replaying the selected session, run sessions `N+1..end` using the source config |
+| `--runs-dir PATH` | `runs` | Output directory |
+| `--replicate INT` | — | Replicate number (for `session_NN_rNN` dirs) |
+
+### Listing turns
+
+```bash
+$ harness replay runs/my-run --session 1 --list-turns
+
+Turns in session 1 (12 total):
+
+  Turn 1: Read  (1 results)
+  Turn 2: Read, Grep  (2 results)  [_step_1_3]
+  Turn 3: Edit, Write  (2 results)  [_step_1_5]
+  ...
+```
+
+### Replaying
+
+```bash
+# Replay from turn 5, three times (runs in parallel)
+harness replay runs/my-run --session 1 --turn 5 --count 3
+
+# Replay with an additional prompt
+harness replay runs/my-run --session 1 --turn 5 --prompt "Try a different approach"
+
+# Replay from turn 1 (re-run from scratch)
+harness replay runs/my-run --session 1 --turn 1 --count 2
+
+# Replay session 1 turn 5, then continue sessions 2..end
+harness replay runs/my-run --session 1 --turn 5 --continue-sessions
+```
+
+Each replay creates a new run directory (e.g. `replay_my-run_s1_t5_r01_2026-03-16T00-00-00/`) with full artifacts including `replay_meta.json` for provenance tracking. The source working directory is never modified — each replicate operates in its own git worktree.

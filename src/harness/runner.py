@@ -8,9 +8,12 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
+from collections.abc import AsyncIterable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from claude_agent_sdk import (
     AgentDefinition,
@@ -25,6 +28,7 @@ from harness.atif_adapter import ATIFAdapter
 from harness.config import RunConfig, SessionConfig, build_provider_env
 from harness.proxy import CaptureProxy, get_target_url
 from harness.state import StateManager
+from harness.uuid_map import build_uuid_map
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +58,19 @@ class SessionResult:
     subagent_count: int = 0
 
 
+def _copy_transcript(session_id: str, cwd: str, session_dir: Path) -> Path | None:
+    """Copy the Claude Code transcript JSONL to the session output directory."""
+    project_hash = "-" + cwd.lstrip("/").replace("/", "-").replace("_", "-")
+    source = Path.home() / ".claude" / "projects" / project_hash / f"{session_id}.jsonl"
+    if not source.exists():
+        logger.warning("Transcript not found: %s", source)
+        return None
+    dest = session_dir / "transcript.jsonl"
+    shutil.copy2(source, dest)
+    logger.info("Copied transcript: %s", dest)
+    return dest
+
+
 async def run_session(
     session_config: SessionConfig,
     run_config: RunConfig,
@@ -61,6 +78,8 @@ async def run_session(
     state_manager: StateManager,
     resume_session_id: str | None = None,
     fork: bool = False,
+    prompt_override: str | AsyncIterable[dict[str, Any]] | None = None,
+    cwd_override: str | None = None,
 ) -> SessionResult:
     """Run a single agent session and save outputs."""
     started_at = datetime.now(timezone.utc).isoformat()
@@ -71,7 +90,7 @@ async def run_session(
     max_turns = session_config.max_turns or run_config.max_turns
 
     # Inject working directory and memory file hint
-    cwd = str(Path(run_config.work_dir).resolve())
+    cwd = cwd_override or str(Path(run_config.work_dir).resolve())
     memory_path = Path(cwd) / run_config.memory_file
     file_hint = (
         f"\n\nYour working directory is {cwd}\n"
@@ -153,7 +172,10 @@ async def run_session(
     num_turns = 0
 
     try:
-        async for message in query(prompt=session_config.prompt, options=options):
+        prompt: str | AsyncIterable[dict[str, Any]] = (
+            prompt_override if prompt_override is not None else session_config.prompt
+        )
+        async for message in query(prompt=prompt, options=options):
             step = adapter.process_message(
                 message,
                 extra={"session_index": session_config.session_index},
@@ -223,6 +245,11 @@ async def run_session(
         traj_path = session_dir / "trajectory.json"
         with open(traj_path, "w") as f:
             json.dump(trajectory.to_json_dict(), f, indent=2)
+
+        # Copy Claude Code transcript and build UUID map for replay support
+        if session_id:
+            _copy_transcript(session_id, cwd, session_dir)
+            build_uuid_map(session_dir, session_config.session_index)
 
     except Exception as e:
         logger.exception(

@@ -11,7 +11,18 @@ npm run dev
 # Open http://localhost:5173
 ```
 
-The UI reads from the `runs/` directory (configured in `ui/.env` as `RUNS_DIR=../runs`).
+## Environment variables
+
+Configure the UI via `ui/.env` or shell environment:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RUNS_DIR` | `../runs` | Path to the runs directory |
+| `OPENROUTER_API_KEY` | — | Required for resampling via OpenRouter |
+| `ANTHROPIC_API_KEY` | — | Required for resampling via Anthropic API |
+| `ANTHROPIC_BASE_URL` | `https://api.anthropic.com` | Override the API base URL for resampling |
+
+The resampling API keys are only needed if you use the "Edit & Resample" feature in the UI. The UI auto-detects whether to use OpenRouter or Anthropic based on the original run's API target.
 
 ## Features
 

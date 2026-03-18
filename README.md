@@ -11,9 +11,8 @@ The harness takes a YAML config describing a sequence of sessions (prompts to an
 - **ATIF trajectories** — standardized JSON capturing every agent step, tool call, observation, and thinking block
 - **Shadow git change tracking** — automatic tracking of all file changes via an invisible git repo, with per-step write attribution and full unified diffs
 - **Session chaining** — three modes for controlling how sessions relate to each other (isolated, chained, forked)
-- **Replay** — reset the working directory to baseline and re-run the same prompt to study variance
+- **Resampling & replay** — study behavioral variance at multiple levels: stateless API resampling, intervention testing (edit inputs and resample), session-level resampling, and turn-level replay with full tool execution from any branch point
 - **Subagent capture** — separate ATIF trajectories for each subagent invocation, linked to the parent via `SubagentTrajectoryRef`
-- **Resampling** — replay specific API turns or entire sessions to study output variance, with intervention testing (edit inputs and resample)
 
 ## Install
 
@@ -107,6 +106,7 @@ load_project_settings: false            # whether to load the repo's CLAUDE.md
 
 memory_file: "MEMORY.md"               # auto-seeded file in working dir (default: MEMORY.md)
 memory_seed: "# Project Notes\n"        # initial content if file doesn't exist
+revert_work_dir: true                  # reset working dir after run (default: false)
 
 sessions:
   - session_index: 1
@@ -124,7 +124,7 @@ All file changes in the working directory are tracked automatically via a **shad
 
 This enables:
 - **Full diffs** — every file change is captured automatically, no need to declare files upfront
-- **Replay** — reset the working directory to its exact baseline state and re-run the same prompt
+- **Turn-level replay** — git worktrees provide isolated filesystem copies at any turn's state for parallel replay execution
 - **Per-step attribution** — file writes are detected after each tool-using step and logged to `state_changelog.jsonl`
 - **Session diffs** — unified patches showing what each session changed, saved as `session_diff.patch`
 
@@ -140,7 +140,7 @@ The working directory does not need to be a git repo. The shadow git works with 
 
 | Mode | Behavior | Shadow git action |
 |------|----------|-------------------|
-| `isolated` | Each session starts fresh. The agent only knows what's in the memory file. | Reset to baseline before each session |
+| `isolated` | Each session starts with a fresh conversation. File changes persist. | No reset |
 | `chained` | Each session resumes from the previous session's conversation. Full context preserved. | Changes accumulate (no reset) |
 | `forked` | Sessions 2+ fork from session 1. Each sees session 1's context but not each other's. | Reset to session 1's end state |
 
@@ -236,6 +236,7 @@ Subagent messages are filtered from the parent trajectory to keep it clean. The 
 | `memory_file` | no | `MEMORY.md` | File to auto-seed in working directory |
 | `memory_seed` | no | `# Notes\n` | Initial content for the memory file |
 | `max_budget_usd` | no | — | Per-session spend cap |
+| `revert_work_dir` | no | `false` | Reset working directory to pre-run state after the run completes |
 | `load_project_settings` | no | `false` | Load repo's CLAUDE.md and .claude/settings.json |
 | `agents` | no | `[]` | Subagent definitions (see [Subagents](#subagents)) |
 | `capture_subagent_trajectories` | no | `true` | Save separate ATIF trajectories for each subagent invocation |
@@ -263,6 +264,7 @@ harness inspect <run_dir> [--json]       Show run details
 harness resample <run_dir> --session N --request N --count N           Resample an API turn
 harness resample-edit <run_dir> --session N --request N --dump/--input Edit & resample
 harness resample-session <run_dir> --session N --count N               Re-run a session N times
+harness replay <run_dir> --session N --turn N --count N                Replay from a turn
 ```
 
 ### `harness run`
@@ -348,6 +350,23 @@ harness resample-session runs/my-run --session 2 --count 5
 
 This finds session 2's `fork_from` target, resolves the session ID to fork from, and runs 5 new replicates. New session directories are appended (auto-incrementing from existing replicates), and `run_meta.json` is updated.
 
+### `harness replay`
+
+Replay a session from any API turn with full tool execution. Each replicate runs in an isolated git worktree, so multiple replicates execute in parallel. Each replay becomes a new independent run with full provenance back to the source.
+
+```bash
+# List available turns
+harness replay runs/my-run --session 1 --list-turns
+
+# Replay from turn 5, three times (runs in parallel)
+harness replay runs/my-run --session 1 --turn 5 --count 3
+
+# Replay with an additional prompt after tool results
+harness replay runs/my-run --session 1 --turn 5 --prompt "Try a different approach"
+```
+
+Replay creates new run directories (e.g. `replay_my-run_s1_t5_r01_<timestamp>/`) with full artifacts. Each includes a `replay_meta.json` with provenance linking back to the source run, session, and turn. The source working directory is never modified.
+
 ## Web UI
 
 A SvelteKit web UI for browsing runs, trajectories, memory diffs, and resamples:
@@ -390,6 +409,8 @@ runs/<run_name>/
 │
 ├── session_01/
 │   ├── trajectory.json         # ATIF v1.6 trajectory (parent)
+│   ├── transcript.jsonl        # Claude Code transcript (for replay)
+│   ├── uuid_map.json           # turn correlation map (transcript ↔ ATIF ↔ raw dumps)
 │   ├── session_diff.patch      # unified diff of this session's changes
 │   ├── subagent_<name>_<id>.json  # subagent ATIF trajectory (if any)
 │   ├── api_captures.jsonl      # API request/response metadata (if capture enabled)
@@ -468,6 +489,9 @@ src/harness/
 ├── proxy.py             # Reverse proxy for raw API request/response capture
 ├── resample.py          # Single-turn API resampling
 ├── resample_session.py  # Full session resampling (resample-session CLI)
+├── transcript.py        # Transcript parser and truncation for turn-level replay
+├── uuid_map.py          # UUID map builder — correlates transcript, ATIF, and raw API dumps
+├── replay.py            # Turn-level replay orchestrator
 └── cli.py               # Typer CLI
 ```
 

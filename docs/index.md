@@ -11,9 +11,8 @@ The harness takes a YAML config describing a sequence of sessions (prompts to an
 - **ATIF trajectories** — standardized JSON capturing every agent step, tool call, observation, and thinking block
 - **Shadow git change tracking** — automatic tracking of all file changes via an invisible git repo, with per-step write attribution and full unified diffs
 - **Session chaining** — three modes for controlling how sessions relate to each other (isolated, chained, forked)
-- **Replay** — reset the working directory to its exact baseline state and re-run the same prompt to study variance
+- **Resampling & replay** — four methods for studying behavioral variance, from quick API resampling to full trajectory replay with tool execution. Edit thinking, text, tool results, or prompts to test counterfactuals
 - **Subagent capture** — separate ATIF trajectories for each subagent invocation, linked to the parent via `SubagentTrajectoryRef`
-- **Resampling** — replay specific API turns or entire sessions to study output variance, with intervention testing (edit inputs and resample)
 
 ## Next steps
 
@@ -21,7 +20,7 @@ The harness takes a YAML config describing a sequence of sessions (prompts to an
 
 - :material-download: **[Installation](getting-started/install.md)** — get set up
 - :material-rocket-launch: **[Quick Start](getting-started/quickstart.md)** — run your first experiment
-- :material-cog: **[Configuration](guide/configuration.md)** — full config reference
-- :material-console: **[CLI Reference](cli.md)** — all commands
+- :material-layers-triple: **[Session Modes](guide/session-modes.md)** — isolated, chained, and forked behavior
+- :material-shuffle-variant: **[Resampling & Replay](guide/resampling.md)** — variance analysis from API-level to full replay
 
 </div>

@@ -7,6 +7,7 @@ Commands:
     harness resample <run_dir> --session N --request N --count N
     harness resample-edit <run_dir> --session N --request N --dump / --input FILE
     harness resample-session <run_dir> --session N --count N
+    harness replay <run_dir> --session N --turn N --count N
 """
 
 from __future__ import annotations
@@ -302,6 +303,91 @@ def resample_edit(
         model_override=model,
         replicate=replicate,
     ))
+
+
+@app.command()
+def replay(
+    run_dir: Annotated[Path, typer.Argument(help="Path to source run directory")],
+    session: Annotated[int, typer.Option(help="Session index to replay from")] = 1,
+    turn: Annotated[Optional[int], typer.Option(help="Turn index to replay from (1-based)")] = None,
+    count: Annotated[int, typer.Option(help="Number of replay replicates")] = 1,
+    prompt: Annotated[Optional[str], typer.Option(help="Additional prompt after tool results")] = None,
+    list_turns: Annotated[bool, typer.Option("--list-turns", help="List available turns and exit")] = False,
+    continue_sessions: Annotated[bool, typer.Option("--continue-sessions", help="Run remaining sessions after replay")] = False,
+    runs_dir: Annotated[Path, typer.Option(help="Output directory")] = Path("runs"),
+    replicate: Annotated[Optional[int], typer.Option(help="Replicate number (for session_NN_rNN dirs)")] = None,
+) -> None:
+    """Replay a session from a specific API turn N times.
+
+    Each replay branches execution from the specified turn, resetting the
+    filesystem to the state at that point and resuming with full tool execution.
+    Each replay becomes a new independent run with full provenance.
+
+    Use --list-turns to discover available turn indices before replaying.
+
+    Examples:
+
+        harness replay runs/my-run --session 1 --list-turns
+        harness replay runs/my-run --session 1 --turn 5 --count 3
+        harness replay runs/my-run --session 1 --turn 5 --prompt "Try a different approach"
+    """
+    from harness.replay import run_replay
+    from harness.transcript import list_turns as _list_turns
+
+    if list_turns:
+        # Load transcript and uuid_map for turn listing
+        session_dir = _find_replay_session_dir(run_dir, session, replicate)
+        transcript_path = session_dir / "transcript.jsonl"
+        if not transcript_path.exists():
+            typer.echo(f"Error: No transcript.jsonl in {session_dir}", err=True)
+            raise typer.Exit(1)
+
+        uuid_map = None
+        uuid_map_path = session_dir / "uuid_map.json"
+        if uuid_map_path.exists():
+            with open(uuid_map_path) as f:
+                uuid_map = json.load(f)
+
+        summaries = _list_turns(transcript_path, uuid_map)
+        typer.echo(f"Turns in session {session} ({len(summaries)} total):\n")
+        for s in summaries:
+            tools = ", ".join(s.tool_names[:5]) if s.tool_names else "(no tools)"
+            if len(s.tool_names) > 5:
+                tools += f", +{len(s.tool_names) - 5} more"
+            tag_str = f"  [{s.shadow_git_tag}]" if s.shadow_git_tag else ""
+            results_str = f"  ({s.tool_result_count} results)" if s.tool_result_count else ""
+            typer.echo(f"  Turn {s.turn_index}: {tools}{results_str}{tag_str}")
+        raise typer.Exit()
+
+    if turn is None:
+        typer.echo("Error: --turn is required (use --list-turns to see available turns)", err=True)
+        raise typer.Exit(1)
+
+    new_dirs = asyncio.run(run_replay(
+        source_run_dir=run_dir,
+        session_index=session,
+        turn_index=turn,
+        count=count,
+        prompt_override=prompt,
+        continue_sessions=continue_sessions,
+        output_base=runs_dir,
+    ))
+
+
+def _find_replay_session_dir(run_dir: Path, session_index: int, replicate: int | None = None) -> Path:
+    """Find the session directory for replay listing."""
+    if replicate is not None:
+        d = run_dir / f"session_{session_index:02d}_r{replicate:02d}"
+        if d.exists():
+            return d
+    d = run_dir / f"session_{session_index:02d}"
+    if d.exists():
+        return d
+    d = run_dir / f"session_{session_index:02d}_r01"
+    if d.exists():
+        return d
+    typer.echo(f"Error: No session {session_index} directory in {run_dir}", err=True)
+    raise typer.Exit(1)
 
 
 @app.command(name="resample-session")

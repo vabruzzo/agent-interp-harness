@@ -76,6 +76,31 @@ Unified diff showing what a specific session changed relative to its starting po
 
 Unified diff of all changes from baseline to final state across all sessions.
 
+## Session-level replay files
+
+Each session also produces files used by the [replay system](resampling.md#turn-level-replay):
+
+- `transcript.jsonl` — copy of the Claude Code transcript from `~/.claude/projects/`
+- `uuid_map.json` — per-turn correlation map across transcript, ATIF trajectory, and raw API dumps (join key: `tool_call_id`)
+
+## Replay run output
+
+Replay runs (created by `harness replay`) have the same structure as regular runs, plus additional provenance files:
+
+```
+runs/replay_<source>_s<N>_t<N>_r<NN>_<timestamp>/
+├── config.yaml                          # frozen config from source run
+├── run_meta.json                        # standard metadata + replay fields
+├── replay_meta.json                     # full provenance (source run, session, turn)
+├── .shadow_git/                         # fresh shadow git for this replay
+└── session_01/
+    ├── trajectory.json                  # ATIF trajectory (from branch point onward)
+    ├── transcript.jsonl                 # Claude Code transcript
+    ├── uuid_map.json                    # turn correlation map
+    ├── session_diff.patch               # file changes during replay
+    └── source_transcript_truncated.jsonl # truncated source transcript for reference
+```
+
 ## API capture files
 
 When `capture_api_requests: true`:

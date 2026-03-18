@@ -7,14 +7,18 @@ Harness for running multi-session Claude Code experiments and capturing trajecto
 ```
 src/harness/
   config.py          # Pydantic models: RunConfig, SessionConfig, AgentConfig
-  cli.py             # Typer CLI: harness run/list/inspect/resample
+  cli.py             # Typer CLI: harness run/list/inspect/resample/replay
   experiment.py      # Multi-session orchestrator
   runner.py          # Single session executor (Claude Agent SDK)
   atif_adapter.py    # SDK messages → ATIF steps
   state.py           # Per-step write tracking via shadow git
   shadow_git.py      # Shadow git: invisible change tracking for working directory
   proxy.py           # Reverse proxy for raw API request capture
-  resample.py        # Resample implementation
+  resample.py        # Turn-level resample implementation
+  resample_session.py # Session-level resample implementation
+  transcript.py      # Transcript parser and truncation for turn-level replay
+  uuid_map.py        # UUID map: correlates transcript, ATIF, and raw API dumps
+  replay.py          # Turn-level replay orchestrator
 
 ui/                  # SvelteKit web UI for exploring runs
   src/routes/        # Pages: runs list, session viewer, resamples
@@ -35,6 +39,8 @@ harness run config.yaml --tag my-tag         # With tag
 harness run config.yaml --run-name my-run    # Custom name
 harness list                                 # List runs
 harness inspect runs/<name>                  # Inspect run
+harness replay runs/<name> --session 1 --turn 5 --count 3  # Replay from turn
+harness replay runs/<name> --session 1 --list-turns         # List turns
 ```
 
 ## Config format (YAML)
@@ -55,6 +61,7 @@ tags: ["tag1"]
 
 memory_file: "MEMORY.md"               # Auto-seeded memory file (default: MEMORY.md)
 memory_seed: "# Notes\n"               # Initial content for memory file
+revert_work_dir: true                  # Reset working directory after run (default: false)
 
 sessions:
   - session_index: 1
@@ -76,13 +83,13 @@ All file changes in the working directory are tracked automatically via a shadow
 
 This enables:
 - **Full diffs**: every file change is captured, not just declared files
-- **Replay**: reset the working directory to baseline and re-run the same prompt
+- **Turn-level replay**: git worktrees provide isolated filesystem copies at any turn's state for parallel replay
 - **Per-step attribution**: file writes are detected after each tool-using step
 
 ### Session modes
-- **isolated**: Working directory resets to baseline before each session
-- **chained**: Changes accumulate across sessions (no reset)
-- **forked**: Sessions 2+ reset to the state after session 1 (or specified fork point)
+- **isolated**: Fresh conversation each session, working directory unchanged
+- **chained**: Conversation resumes from previous session, working directory unchanged
+- **forked**: Sessions 2+ reset working directory to the state after session 1 (or specified fork point)
 
 ### Providers
 - `openrouter` (default): needs `OPENROUTER_API_KEY`

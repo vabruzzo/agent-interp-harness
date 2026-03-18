@@ -68,6 +68,7 @@ sessions:
 | `capture_api_requests` | no | `true` | Capture raw API requests (enables resampling) |
 | `run_name` | no | auto | Custom name for the run directory |
 | `tags` | no | `[]` | Metadata tags |
+| `revert_work_dir` | no | `false` | Reset working directory to pre-run state after the run completes |
 | `load_project_settings` | no | `false` | Load the repo's CLAUDE.md and .claude/settings.json |
 
 ### Session fields

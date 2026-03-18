@@ -180,7 +180,8 @@ class TestHardReset:
 
 
 class TestSessionLifecycle:
-    def test_isolated_sessions(self, shadow_git_with_baseline, tmp_work_dir: Path):
+    def test_isolated_sessions_preserve_working_dir(self, shadow_git_with_baseline, tmp_work_dir: Path):
+        """Isolated mode only resets chat history, not the working directory."""
         sg = shadow_git_with_baseline
 
         # Session 1: modify a file
@@ -188,9 +189,9 @@ class TestSessionLifecycle:
         (tmp_work_dir / "main.py").write_text("session 1 change\n")
         sg.end_session(1)
 
-        # Session 2 (isolated): should reset to baseline
+        # Session 2 (isolated): working directory should keep session 1's changes
         sg.begin_session(2, SessionMode.ISOLATED)
-        assert (tmp_work_dir / "main.py").read_text() == "print('hello')\n"
+        assert (tmp_work_dir / "main.py").read_text() == "session 1 change\n"
 
     def test_chained_sessions(self, shadow_git_with_baseline, tmp_work_dir: Path):
         sg = shadow_git_with_baseline
@@ -204,7 +205,8 @@ class TestSessionLifecycle:
         sg.begin_session(2, SessionMode.CHAINED)
         assert (tmp_work_dir / "main.py").read_text() == "session 1 change\n"
 
-    def test_forked_sessions(self, shadow_git_with_baseline, tmp_work_dir: Path):
+    def test_forked_sessions_with_reset(self, shadow_git_with_baseline, tmp_work_dir: Path):
+        """Forked session resets to fork point when needs_reset=True."""
         sg = shadow_git_with_baseline
 
         # Session 1
@@ -212,15 +214,28 @@ class TestSessionLifecycle:
         (tmp_work_dir / "main.py").write_text("session 1\n")
         sg.end_session(1)
 
-        # Session 2
-        sg.begin_session(2, SessionMode.CHAINED)
+        # Session 2 (first fork from 1) — no reset needed
+        sg.begin_session(2, SessionMode.FORKED, fork_from=1, needs_reset=False)
         (tmp_work_dir / "extra.txt").write_text("session 2\n")
         sg.end_session(2)
 
-        # Session 3, forked from session 1: should see session 1 but not session 2
-        sg.begin_session(3, SessionMode.FORKED, fork_from=1)
+        # Session 3 (second fork from 1) — needs reset since session 2 modified things
+        sg.begin_session(3, SessionMode.FORKED, fork_from=1, needs_reset=True)
         assert (tmp_work_dir / "main.py").read_text() == "session 1\n"
         assert not (tmp_work_dir / "extra.txt").exists()
+
+    def test_forked_sessions_no_reset_when_single(self, shadow_git_with_baseline, tmp_work_dir: Path):
+        """Single fork from a point doesn't need a reset."""
+        sg = shadow_git_with_baseline
+
+        # Session 1
+        sg.begin_session(1, SessionMode.CHAINED)
+        (tmp_work_dir / "main.py").write_text("session 1\n")
+        sg.end_session(1)
+
+        # Session 2 (only fork from 1) — no reset, working dir already at session 1's state
+        sg.begin_session(2, SessionMode.FORKED, fork_from=1, needs_reset=False)
+        assert (tmp_work_dir / "main.py").read_text() == "session 1\n"
 
     def test_end_session_with_replicate(self, shadow_git_with_baseline, tmp_work_dir: Path):
         sg = shadow_git_with_baseline

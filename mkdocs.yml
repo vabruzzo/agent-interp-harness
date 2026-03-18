@@ -60,11 +60,12 @@ nav:
   - User Guide:
       - Configuration: guide/configuration.md
       - Session Modes: guide/session-modes.md
-      - Subagents: guide/subagents.md
-      - Resampling: guide/resampling.md
-      - Web UI: guide/web-ui.md
+      - Resampling & Replay: guide/resampling.md
       - Output Structure: guide/output.md
+      - Subagents: guide/subagents.md
+      - Web UI: guide/web-ui.md
   - CLI Reference: cli.md
+  - Glossary: glossary.md
   - API Reference:
       - Config: api/config.md
       - Shadow Git: api/shadow-git.md

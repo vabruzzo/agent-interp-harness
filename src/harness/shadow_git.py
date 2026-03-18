@@ -136,17 +136,66 @@ class ShadowGit:
         self._git("clean", "-fd")
         logger.info("Hard reset to %s", ref)
 
+    def add_worktree(self, dest: Path, ref: str) -> Path:
+        """Create a git worktree checked out at `ref` in detached HEAD mode.
+
+        Uses GIT_DIR only (not GIT_WORK_TREE) since worktree commands
+        operate on the bare repo directly.
+
+        Returns the resolved destination path.
+        """
+        import os
+
+        dest = dest.resolve()
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        env = {**os.environ, "GIT_DIR": str(self.git_dir)}
+        subprocess.run(
+            ["git", "worktree", "add", str(dest), ref, "--detach"],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=True,
+        )
+        logger.info("Created worktree at %s (ref=%s)", dest, ref)
+        return dest
+
+    def remove_worktree(self, dest: Path) -> None:
+        """Remove a git worktree. Uses --force to handle dirty trees."""
+        import os
+
+        dest = dest.resolve()
+        env = {**os.environ, "GIT_DIR": str(self.git_dir)}
+        result = subprocess.run(
+            ["git", "worktree", "remove", "--force", str(dest)],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if result.returncode != 0:
+            logger.warning("Failed to remove worktree %s: %s", dest, result.stderr.strip())
+        else:
+            logger.info("Removed worktree at %s", dest)
+
     def tag(self, name: str) -> None:
         """Create or update a tag at HEAD."""
         self._git("tag", "-f", name)
 
-    def begin_session(self, session_index: int, mode: SessionMode, fork_from: int | None = None) -> None:
-        """Prepare the working directory for a session based on mode."""
-        if mode == SessionMode.ISOLATED:
-            self.hard_reset_to("baseline")
-        elif mode == SessionMode.CHAINED:
-            pass  # cumulative — no reset
-        elif mode == SessionMode.FORKED:
+    def begin_session(
+        self,
+        session_index: int,
+        mode: SessionMode,
+        fork_from: int | None = None,
+        needs_reset: bool = False,
+    ) -> None:
+        """Prepare the working directory for a session based on mode.
+
+        Only resets the working directory when needs_reset is True, which is
+        used for forked sessions when a sibling has already run and modified
+        the working directory since the fork point.
+        """
+        if needs_reset:
             ref = f"session_{fork_from:02d}" if fork_from else "session_01"
             self.hard_reset_to(ref)
 
